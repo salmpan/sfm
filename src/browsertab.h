@@ -5,13 +5,21 @@
 #include <vector>
 
 class QFileSystemModel;
+class QAbstractItemView;
 class QTreeView;
+class QListView;
 class QStackedWidget;
 class TrashView;
 
 class BrowserTab final : public QWidget {
   Q_OBJECT
 public:
+  enum class ViewMode {
+    GridIcons,  // QListView::IconMode
+    List,       // QTreeView detailed
+    Compact     // QListView::ListMode
+  };
+
   explicit BrowserTab(QFileSystemModel *sharedModel, QWidget *parent = nullptr);
 
   QString location() const { return location_; }
@@ -33,7 +41,10 @@ public:
   bool trashDeleteSelected(QString *errorOut = nullptr);
   bool trashRestoreSelected(QString *errorOut = nullptr);
 
-  QTreeView* fileView() const { return view_; }
+  void setViewMode(ViewMode m);
+  ViewMode viewMode() const { return viewMode_; }
+
+  QTreeView* fileView() const { return listView_; }
   TrashView* trashView() const { return trashView_; }
 
 signals:
@@ -58,6 +69,7 @@ protected:
   bool eventFilter(QObject *obj, QEvent *event) override;
 
 private:
+  QAbstractItemView* currentFileView() const;
   void setTabTitleFromLocation();
   void showFilePane();
   void showTrashPane();
@@ -68,7 +80,12 @@ private:
 
 private:
   QFileSystemModel *fsModel_{nullptr};
-  QTreeView *view_{nullptr};
+  // File views
+  QStackedWidget *fileStack_{nullptr};
+  QTreeView *listView_{nullptr};
+  QListView *iconView_{nullptr};
+  QListView *compactView_{nullptr};
+  ViewMode viewMode_{ViewMode::List};
 
   QStackedWidget *stack_{nullptr};
   TrashView *trashView_{nullptr};

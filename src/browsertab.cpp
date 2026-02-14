@@ -5,6 +5,7 @@
 
 #include <QFileSystemModel>
 #include <QTreeView>
+#include <QListView>
 #include <QStackedWidget>
 #include <QVBoxLayout>
 #include <QHeaderView>
@@ -20,34 +21,81 @@
 BrowserTab::BrowserTab(QFileSystemModel *sharedModel, QWidget *parent)
   : QWidget(parent), fsModel_(sharedModel) {
 
-  view_ = new QTreeView(this);
-  view_->setModel(fsModel_);
-  view_->setSortingEnabled(true);
-  view_->sortByColumn(0, Qt::AscendingOrder);
-  view_->setSelectionMode(QAbstractItemView::ExtendedSelection);
-  view_->setSelectionBehavior(QAbstractItemView::SelectRows);
-  view_->setEditTriggers(QAbstractItemView::NoEditTriggers);
-  view_->setUniformRowHeights(true);
-  view_->setContextMenuPolicy(Qt::CustomContextMenu);
+  // Detailed list (QTreeView)
+  listView_ = new QTreeView(this);
+  listView_->setModel(fsModel_);
+  listView_->setSortingEnabled(true);
+  listView_->sortByColumn(0, Qt::AscendingOrder);
+  listView_->setSelectionMode(QAbstractItemView::ExtendedSelection);
+  listView_->setSelectionBehavior(QAbstractItemView::SelectRows);
+  listView_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+  listView_->setUniformRowHeights(true);
+  listView_->setContextMenuPolicy(Qt::CustomContextMenu);
 
-  view_->header()->setSectionResizeMode(0, QHeaderView::Stretch);
-  view_->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
-  view_->header()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
-  view_->header()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+  listView_->header()->setSectionResizeMode(0, QHeaderView::Stretch);
+  listView_->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+  listView_->header()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+  listView_->header()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
 
-  connect(view_, &QTreeView::doubleClicked, this, &BrowserTab::onActivated);
-  connect(view_, &QTreeView::activated,     this, &BrowserTab::onActivated);
-  connect(view_, &QWidget::customContextMenuRequested, this, &BrowserTab::onContextMenu);
+  connect(listView_, &QTreeView::doubleClicked, this, &BrowserTab::onActivated);
+  connect(listView_, &QTreeView::activated,     this, &BrowserTab::onActivated);
+  connect(listView_, &QWidget::customContextMenuRequested, this, &BrowserTab::onContextMenu);
 
-  view_->viewport()->installEventFilter(this);
+  listView_->viewport()->installEventFilter(this);
+
+  // Grid icons (QListView in IconMode)
+  iconView_ = new QListView(this);
+  iconView_->setModel(fsModel_);
+  iconView_->setViewMode(QListView::IconMode);
+  iconView_->setResizeMode(QListView::Adjust);
+  iconView_->setSelectionMode(QAbstractItemView::ExtendedSelection);
+  iconView_->setSelectionBehavior(QAbstractItemView::SelectItems);
+  iconView_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+  iconView_->setContextMenuPolicy(Qt::CustomContextMenu);
+  iconView_->setUniformItemSizes(true);
+  iconView_->setWordWrap(true);
+  iconView_->setIconSize(QSize(64, 64));
+  iconView_->setGridSize(QSize(110, 100));
+  iconView_->setMovement(QListView::Static);
+
+  connect(iconView_, &QListView::doubleClicked, this, &BrowserTab::onActivated);
+  connect(iconView_, &QListView::activated,     this, &BrowserTab::onActivated);
+  connect(iconView_, &QWidget::customContextMenuRequested, this, &BrowserTab::onContextMenu);
+
+  iconView_->viewport()->installEventFilter(this);
+
+  // Compact list (QListView in ListMode)
+  compactView_ = new QListView(this);
+  compactView_->setModel(fsModel_);
+  compactView_->setViewMode(QListView::ListMode);
+  compactView_->setSelectionMode(QAbstractItemView::ExtendedSelection);
+  compactView_->setSelectionBehavior(QAbstractItemView::SelectItems);
+  compactView_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+  compactView_->setContextMenuPolicy(Qt::CustomContextMenu);
+  compactView_->setUniformItemSizes(true);
+  compactView_->setIconSize(QSize(16, 16));
+  compactView_->setWrapping(false);
+  compactView_->setSpacing(0);
+
+  connect(compactView_, &QListView::doubleClicked, this, &BrowserTab::onActivated);
+  connect(compactView_, &QListView::activated,     this, &BrowserTab::onActivated);
+  connect(compactView_, &QWidget::customContextMenuRequested, this, &BrowserTab::onContextMenu);
+
+  compactView_->viewport()->installEventFilter(this);
 
   trashView_ = new TrashView(this);
   connect(trashView_, &TrashView::requestNavigate, this, [this](const QString &p){
     emit requestNavigate(p);
   });
 
+  fileStack_ = new QStackedWidget(this);
+  fileStack_->addWidget(iconView_);
+  fileStack_->addWidget(listView_);
+  fileStack_->addWidget(compactView_);
+  fileStack_->setCurrentWidget(listView_);
+
   stack_ = new QStackedWidget(this);
-  stack_->addWidget(view_);
+  stack_->addWidget(fileStack_);
   stack_->addWidget(trashView_);
 
   auto *layout = new QVBoxLayout(this);
@@ -55,6 +103,11 @@ BrowserTab::BrowserTab(QFileSystemModel *sharedModel, QWidget *parent)
   layout->addWidget(stack_);
 
   navigateTo(QDir::homePath(), true);
+}
+
+QAbstractItemView* BrowserTab::currentFileView() const {
+  if (!fileStack_) return nullptr;
+  return qobject_cast<QAbstractItemView*>(fileStack_->currentWidget());
 }
 
 void BrowserTab::setTabTitleFromLocation() {
@@ -68,7 +121,7 @@ void BrowserTab::setTabTitleFromLocation() {
   emit titleChanged(title);
 }
 
-void BrowserTab::showFilePane() { stack_->setCurrentWidget(view_); }
+void BrowserTab::showFilePane() { stack_->setCurrentWidget(fileStack_); }
 
 void BrowserTab::showTrashPane() {
   stack_->setCurrentWidget(trashView_);
@@ -106,11 +159,23 @@ void BrowserTab::navigateTo(const QString &loc, bool pushHistory) {
     fsModel_->setRootPath(location_);
     root = fsModel_->index(location_);
   }
-  view_->setRootIndex(root);
+  listView_->setRootIndex(root);
+  iconView_->setRootIndex(root);
+  compactView_->setRootIndex(root);
 
   showFilePane();
   emit locationChanged(location_);
   setTabTitleFromLocation();
+}
+
+void BrowserTab::setViewMode(ViewMode m) {
+  viewMode_ = m;
+  if (!fileStack_) return;
+  switch (m) {
+    case ViewMode::GridIcons: fileStack_->setCurrentWidget(iconView_); break;
+    case ViewMode::List:      fileStack_->setCurrentWidget(listView_); break;
+    case ViewMode::Compact:   fileStack_->setCurrentWidget(compactView_); break;
+  }
 }
 
 void BrowserTab::goBack() {
@@ -140,10 +205,16 @@ void BrowserTab::refresh() {
 QStringList BrowserTab::selectedPaths() const {
   QStringList out;
   if (inTrash()) return out;
-  if (!view_->selectionModel()) return out;
-  const QModelIndexList rows = view_->selectionModel()->selectedRows(0);
-  out.reserve(rows.size());
-  for (const QModelIndex &r : rows) out << fsModel_->filePath(r);
+  auto *v = currentFileView();
+  if (!v || !v->selectionModel()) return out;
+
+  // For QTreeView we prefer selectedRows(0). For QListView, selectedIndexes() is fine.
+  QModelIndexList idxs;
+  if (auto *tv = qobject_cast<QTreeView*>(v)) idxs = tv->selectionModel()->selectedRows(0);
+  else idxs = v->selectionModel()->selectedIndexes();
+
+  out.reserve(idxs.size());
+  for (const QModelIndex &i : idxs) out << fsModel_->filePath(i.sibling(i.row(), 0));
   return out;
 }
 
@@ -177,17 +248,22 @@ void BrowserTab::onActivated(const QModelIndex &idx) {
 
 QString BrowserTab::currentSelectedDirOrEmpty() const {
   if (inTrash()) return {};
-  if (!view_->selectionModel()) return {};
 
-  QModelIndex cur = view_->currentIndex();
+  auto *v = currentFileView();
+  if (!v || !v->selectionModel()) return {};
+
+  QModelIndex cur = v->currentIndex();
   if (cur.isValid()) {
     const QString p = fsModel_->filePath(cur.sibling(cur.row(), 0));
     if (QFileInfo(p).isDir()) return p;
   }
 
-  const QModelIndexList rows = view_->selectionModel()->selectedRows(0);
-  for (const QModelIndex &r : rows) {
-    const QString p = fsModel_->filePath(r);
+  QModelIndexList idxs;
+  if (auto *tv = qobject_cast<QTreeView*>(v)) idxs = tv->selectionModel()->selectedRows(0);
+  else idxs = v->selectionModel()->selectedIndexes();
+
+  for (const QModelIndex &i : idxs) {
+    const QString p = fsModel_->filePath(i.sibling(i.row(), 0));
     if (QFileInfo(p).isDir()) return p;
   }
   return {};
@@ -207,7 +283,10 @@ void BrowserTab::onCtrlEnter() {
 void BrowserTab::onContextMenu(const QPoint &pos) {
   if (inTrash()) return; // TrashView has its own context menu
 
-  const QModelIndex idx = view_->indexAt(pos);
+  auto *v = currentFileView();
+  if (!v) return;
+
+  const QModelIndex idx = v->indexAt(pos);
   const bool hasIndex = idx.isValid();
   QString clickedPath = hasIndex ? fsModel_->filePath(idx) : QString();
 
@@ -243,7 +322,7 @@ void BrowserTab::onContextMenu(const QPoint &pos) {
   aProps->setEnabled(hasIndex);
   aProps->setShortcut(QKeySequence(Qt::ALT | Qt::Key_Return));
 
-  QAction *chosen = menu.exec(view_->viewport()->mapToGlobal(pos));
+  QAction *chosen = menu.exec(v->viewport()->mapToGlobal(pos));
   if (!chosen) return;
 
   if (chosen == aOpen) {
@@ -273,7 +352,8 @@ void BrowserTab::onContextMenu(const QPoint &pos) {
 }
 
 bool BrowserTab::eventFilter(QObject *obj, QEvent *event) {
-  if (obj == view_->viewport()) {
+  auto handleFor = [&](QAbstractItemView *v) -> bool {
+    if (!v) return false;
     if (event->type() == QEvent::KeyPress) {
       auto *ke = static_cast<QKeyEvent*>(event);
       if ((ke->modifiers() & Qt::ControlModifier) &&
@@ -286,7 +366,7 @@ bool BrowserTab::eventFilter(QObject *obj, QEvent *event) {
     if (event->type() == QEvent::MouseButtonRelease) {
       auto *me = static_cast<QMouseEvent*>(event);
       if (me->button() == Qt::MiddleButton) {
-        const QModelIndex idx = view_->indexAt(me->position().toPoint());
+        const QModelIndex idx = v->indexAt(me->position().toPoint());
         if (idx.isValid()) {
           const QString p = fsModel_->filePath(idx);
           if (QFileInfo(p).isDir()) {
@@ -296,6 +376,11 @@ bool BrowserTab::eventFilter(QObject *obj, QEvent *event) {
         }
       }
     }
-  }
+    return false;
+  };
+
+  if (obj == listView_->viewport()) return handleFor(listView_);
+  if (obj == iconView_->viewport()) return handleFor(iconView_);
+  if (obj == compactView_->viewport()) return handleFor(compactView_);
   return QWidget::eventFilter(obj, event);
 }

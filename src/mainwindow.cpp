@@ -206,6 +206,22 @@ MainWindow::MainWindow(QWidget *parent)
   auto *scPaste = new QShortcut(QKeySequence::Paste, this);
   connect(scPaste, &QShortcut::activated, this, &MainWindow::pasteIntoCurrentDir);
 
+  // View mode shortcuts (Ctrl+1/2/3)
+  auto *scViewGrid = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_1), this);
+  connect(scViewGrid, &QShortcut::activated, this, [this]{
+    if (auto *t = currentTab()) t->setViewMode(BrowserTab::ViewMode::GridIcons);
+  });
+
+  auto *scViewList = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_2), this);
+  connect(scViewList, &QShortcut::activated, this, [this]{
+    if (auto *t = currentTab()) t->setViewMode(BrowserTab::ViewMode::List);
+  });
+
+  auto *scViewCompact = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_3), this);
+  connect(scViewCompact, &QShortcut::activated, this, [this]{
+    if (auto *t = currentTab()) t->setViewMode(BrowserTab::ViewMode::Compact);
+  });
+
   auto *scDel = new QShortcut(QKeySequence(Qt::Key_Delete), this);
   connect(scDel, &QShortcut::activated, this, [this]{
     if (currentTab()->inTrash()) deleteSelectedInTrashView();
