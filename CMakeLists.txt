@@ -12,6 +12,8 @@ find_package(Qt6 REQUIRED COMPONENTS Widgets DBus)
 
 add_executable(sfm
   src/main.cpp
+  src/mainwindow.h
+  src/mainwindow.cpp
 
   src/terminal.h
   src/terminal.cpp
