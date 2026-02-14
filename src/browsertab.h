@@ -1,5 +1,9 @@
 #pragma once
 
+#include <QStringList>
+#include <QModelIndex>
+#include <QPoint>
+#include <QEvent>
 #include <QWidget>
 #include <QString>
 #include <vector>
@@ -44,7 +48,6 @@ public:
   void setViewMode(ViewMode m);
   ViewMode viewMode() const { return viewMode_; }
 
-  QTreeView* fileView() const { return listView_; }
   TrashView* trashView() const { return trashView_; }
 
 signals:

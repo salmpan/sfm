@@ -15,6 +15,11 @@ class PlacesSidebar;
 class JobManager;
 class BrowserTab;
 
+class QMenu;
+class QAction;
+class QActionGroup;
+
+
 class MainWindow final : public QMainWindow {
   Q_OBJECT
 public:
@@ -64,6 +69,9 @@ private:
   void emptyTrashFromSidebar();
 
 private:
+  void createActions();
+  void createMenus();
+
   QFileSystemModel *fsModel_{nullptr};
   JobManager *jobs_{nullptr};
 
@@ -81,4 +89,46 @@ private:
   QAction *actRefresh_{nullptr};
 
   Clip clipboard_;
+
+// Menus
+  QMenu* fileMenu_{nullptr};
+  QMenu* editMenu_{nullptr};
+  QMenu* viewMenu_{nullptr};
+  QMenu* goMenu_{nullptr};
+  QMenu* toolsMenu_{nullptr};
+  QMenu* helpMenu_{nullptr};
+
+  // File
+  QAction* newTabAct_{nullptr};
+  QAction* closeTabAct_{nullptr};
+  QAction* quitAct_{nullptr};
+
+  // Edit
+  QAction* copyAct_{nullptr};
+  QAction* cutAct_{nullptr};
+  QAction* pasteAct_{nullptr};
+  QAction* renameAct_{nullptr};
+  QAction* deleteAct_{nullptr};
+  QAction* trashAct_{nullptr};
+  QAction* propertiesAct_{nullptr};
+  QAction* openWithAct_{nullptr};
+
+  // View
+  QActionGroup* viewModeGroup_{nullptr};
+  QAction* viewGridAct_{nullptr};
+  QAction* viewListAct_{nullptr};
+  QAction* viewCompactAct_{nullptr};
+  QAction* toggleHiddenAct_{nullptr};
+
+  // Go
+  QAction* backAct_{nullptr};
+  QAction* forwardAct_{nullptr};
+  QAction* upAct_{nullptr};
+  QAction* refreshAct_{nullptr};
+  QAction* homeAct_{nullptr};
+  QAction* trashLocationAct_{nullptr};
+
+  // Tools
+  QAction* openTerminalAct_{nullptr};
+  QAction* emptyTrashAct_{nullptr};
 };

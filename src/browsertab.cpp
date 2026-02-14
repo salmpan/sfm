@@ -105,9 +105,14 @@ BrowserTab::BrowserTab(QFileSystemModel *sharedModel, QWidget *parent)
   navigateTo(QDir::homePath(), true);
 }
 
-QAbstractItemView* BrowserTab::currentFileView() const {
-  if (!fileStack_) return nullptr;
-  return qobject_cast<QAbstractItemView*>(fileStack_->currentWidget());
+QAbstractItemView* BrowserTab::currentFileView() const
+{
+  switch (viewMode_) {
+    case ViewMode::GridIcons: return iconView_;
+    case ViewMode::List:      return listView_;
+    case ViewMode::Compact:   return compactView_;
+  }
+  return listView_;
 }
 
 void BrowserTab::setTabTitleFromLocation() {

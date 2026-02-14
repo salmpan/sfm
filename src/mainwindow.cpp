@@ -14,6 +14,11 @@
 #include <QFileInfo>
 #include <QDir>
 #include <QProgressDialog>
+#include <QMenuBar>
+#include <QMenu>
+#include <QAction>
+#include <QActionGroup>
+#include <QKeySequence>
 
 #include "terminal.h"
 #include "places.h"
@@ -241,6 +246,198 @@ MainWindow::MainWindow(QWidget *parent)
   connect(scTerm, &QShortcut::activated, this, &MainWindow::openCurrentDirInTerminal);
 
   newTab(QDir::homePath());
+
+  createActions();
+  createMenus();
+}
+
+void MainWindow::createActions()
+{
+  // File
+  newTabAct_ = new QAction(tr("New Tab"), this);
+  newTabAct_->setShortcut(QKeySequence::AddTab);
+  connect(newTabAct_, &QAction::triggered, this, [this]{
+    const QString loc = currentTab() ? currentTab()->location() : QDir::homePath();
+    newTab(loc);
+  });
+
+  closeTabAct_ = new QAction(tr("Close Tab"), this);
+  closeTabAct_->setShortcut(QKeySequence::Close);
+  connect(closeTabAct_, &QAction::triggered, this, [this]{
+    const int i = tabs_ ? tabs_->currentIndex() : -1;
+    if (i >= 0) closeTab(i);
+  });
+
+  quitAct_ = new QAction(tr("Quit"), this);
+  quitAct_->setShortcut(QKeySequence::Quit);
+  connect(quitAct_, &QAction::triggered, this, &QWidget::close);
+
+  // Edit
+  copyAct_ = new QAction(tr("Copy"), this);
+  copyAct_->setShortcut(QKeySequence::Copy);
+  connect(copyAct_, &QAction::triggered, this, &MainWindow::copySelected);
+
+  cutAct_ = new QAction(tr("Cut"), this);
+  cutAct_->setShortcut(QKeySequence::Cut);
+  connect(cutAct_, &QAction::triggered, this, &MainWindow::cutSelected);
+
+  pasteAct_ = new QAction(tr("Paste"), this);
+  pasteAct_->setShortcut(QKeySequence::Paste);
+  connect(pasteAct_, &QAction::triggered, this, &MainWindow::pasteIntoCurrentDir);
+
+  renameAct_ = new QAction(tr("Rename"), this);
+  renameAct_->setShortcut(Qt::Key_F2);
+  connect(renameAct_, &QAction::triggered, this, &MainWindow::renameSelected);
+
+  trashAct_ = new QAction(tr("Move to Trash"), this);
+  trashAct_->setShortcut(QKeySequence::Delete);
+  connect(trashAct_, &QAction::triggered, this, &MainWindow::trashSelected);
+
+  deleteAct_ = new QAction(tr("Delete Permanently"), this);
+  deleteAct_->setShortcut(QKeySequence(Qt::SHIFT | Qt::Key_Delete));
+  connect(deleteAct_, &QAction::triggered, this, &MainWindow::deleteSelectedPermanently);
+
+  propertiesAct_ = new QAction(tr("Properties…"), this);
+  propertiesAct_->setShortcut(QKeySequence(Qt::ALT | Qt::Key_Return));
+  connect(propertiesAct_, &QAction::triggered, this, &MainWindow::showPropertiesForSelection);
+
+  openWithAct_ = new QAction(tr("Open With…"), this);
+  connect(openWithAct_, &QAction::triggered, this, [this]{
+    if (!currentTab()) return;
+    const QStringList sel = currentTab()->selectedPaths();
+    if (sel.isEmpty()) return;
+    OpenWithDialog dlg(sel.first(), this);
+    dlg.exec();
+  });
+
+  // View
+  viewModeGroup_ = new QActionGroup(this);
+  viewModeGroup_->setExclusive(true);
+
+  viewGridAct_ = new QAction(tr("Icon View"), this);
+  viewGridAct_->setCheckable(true);
+  viewGridAct_->setShortcut(QKeySequence("Ctrl+1"));
+  viewModeGroup_->addAction(viewGridAct_);
+  connect(viewGridAct_, &QAction::triggered, this, [this]{
+    if (auto t = currentTab()) t->setViewMode(BrowserTab::ViewMode::GridIcons);
+  });
+
+  viewListAct_ = new QAction(tr("List View"), this);
+  viewListAct_->setCheckable(true);
+  viewListAct_->setShortcut(QKeySequence("Ctrl+2"));
+  viewModeGroup_->addAction(viewListAct_);
+  connect(viewListAct_, &QAction::triggered, this, [this]{
+    if (auto t = currentTab()) t->setViewMode(BrowserTab::ViewMode::List);
+  });
+
+  viewCompactAct_ = new QAction(tr("Compact View"), this);
+  viewCompactAct_->setCheckable(true);
+  viewCompactAct_->setShortcut(QKeySequence("Ctrl+3"));
+  viewModeGroup_->addAction(viewCompactAct_);
+  connect(viewCompactAct_, &QAction::triggered, this, [this]{
+    if (auto t = currentTab()) t->setViewMode(BrowserTab::ViewMode::Compact);
+  });
+
+  auto syncViewChecks = [this]{
+    auto t = currentTab();
+    if (!t) return;
+    switch (t->viewMode()) {
+      case BrowserTab::ViewMode::GridIcons: viewGridAct_->setChecked(true); break;
+      case BrowserTab::ViewMode::List:      viewListAct_->setChecked(true); break;
+      case BrowserTab::ViewMode::Compact:   viewCompactAct_->setChecked(true); break;
+    }
+  };
+  if (tabs_) connect(tabs_, &QTabWidget::currentChanged, this, syncViewChecks);
+  syncViewChecks();
+
+  toggleHiddenAct_ = new QAction(tr("Show Hidden Files"), this);
+  toggleHiddenAct_->setCheckable(true);
+  toggleHiddenAct_->setShortcut(QKeySequence("Ctrl+H"));
+  connect(toggleHiddenAct_, &QAction::toggled, this, [this](bool on){
+    if (!fsModel_) return;
+    auto f = fsModel_->filter();
+    if (on) f |= QDir::Hidden;
+    else    f &= ~QDir::Hidden;
+    fsModel_->setFilter(f);
+  });
+
+  // Go
+  backAct_ = actBack_;
+  forwardAct_ = actForward_;
+  upAct_ = actUp_;
+  refreshAct_ = actRefresh_;
+
+  homeAct_ = new QAction(tr("Home"), this);
+  homeAct_->setShortcut(QKeySequence("Alt+Home"));
+  connect(homeAct_, &QAction::triggered, this, [this]{
+    if (auto t = currentTab()) t->navigateTo(QDir::homePath(), true);
+    syncUiFromTab();
+  });
+
+  trashLocationAct_ = new QAction(tr("Trash"), this);
+  connect(trashLocationAct_, &QAction::triggered, this, [this]{
+    if (auto t = currentTab()) t->navigateTo("trash:///", true);
+    syncUiFromTab();
+  });
+
+  // Tools
+  openTerminalAct_ = new QAction(tr("Open Terminal Here"), this);
+  openTerminalAct_->setShortcut(QKeySequence("Ctrl+Alt+T"));
+  connect(openTerminalAct_, &QAction::triggered, this, &MainWindow::openCurrentDirInTerminal);
+
+  emptyTrashAct_ = new QAction(tr("Empty Trash"), this);
+  connect(emptyTrashAct_, &QAction::triggered, this, &MainWindow::emptyTrashFromSidebar);
+}
+
+
+void MainWindow::createMenus()
+{
+  fileMenu_  = menuBar()->addMenu(tr("&File"));
+  editMenu_  = menuBar()->addMenu(tr("&Edit"));
+  viewMenu_  = menuBar()->addMenu(tr("&View"));
+  goMenu_    = menuBar()->addMenu(tr("&Go"));
+  toolsMenu_ = menuBar()->addMenu(tr("&Tools"));
+  helpMenu_  = menuBar()->addMenu(tr("&Help"));
+
+  // File
+  fileMenu_->addAction(newTabAct_);
+  fileMenu_->addAction(closeTabAct_);
+  fileMenu_->addSeparator();
+  fileMenu_->addAction(quitAct_);
+
+  // Edit
+  editMenu_->addAction(copyAct_);
+  editMenu_->addAction(cutAct_);
+  editMenu_->addAction(pasteAct_);
+  editMenu_->addSeparator();
+  editMenu_->addAction(renameAct_);
+  editMenu_->addSeparator();
+  editMenu_->addAction(trashAct_);
+  editMenu_->addAction(deleteAct_);
+  editMenu_->addSeparator();
+  editMenu_->addAction(openWithAct_);
+  editMenu_->addAction(propertiesAct_);
+
+  // View
+  viewMenu_->addAction(viewGridAct_);
+  viewMenu_->addAction(viewListAct_);
+  viewMenu_->addAction(viewCompactAct_);
+  viewMenu_->addSeparator();
+  viewMenu_->addAction(toggleHiddenAct_);
+
+  // Go
+  goMenu_->addAction(backAct_);
+  goMenu_->addAction(forwardAct_);
+  goMenu_->addAction(upAct_);
+  goMenu_->addAction(refreshAct_);
+  goMenu_->addSeparator();
+  goMenu_->addAction(homeAct_);
+  goMenu_->addAction(trashLocationAct_);
+
+  // Tools
+  toolsMenu_->addAction(openTerminalAct_);
+  toolsMenu_->addSeparator();
+  toolsMenu_->addAction(emptyTrashAct_);
 }
 
 QString MainWindow::humanBytes(qint64 b) {
