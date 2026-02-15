@@ -58,6 +58,7 @@ private:
   void pasteIntoCurrentDir();
   void renameSelected();
   void createNewFolder();
+  void createEmptyDocument();
 
   void trashSelected();
   void deleteSelectedPermanently();
@@ -101,6 +102,8 @@ private:
   // File
   QAction* newTabAct_{nullptr};
   QAction* closeTabAct_{nullptr};
+  QAction* newFolderAct_{nullptr};
+  QAction* newDocAct_{nullptr};
   QAction* quitAct_{nullptr};
 
   // Edit

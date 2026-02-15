@@ -28,7 +28,7 @@ BrowserTab::BrowserTab(QFileSystemModel *sharedModel, QWidget *parent)
   listView_->sortByColumn(0, Qt::AscendingOrder);
   listView_->setSelectionMode(QAbstractItemView::ExtendedSelection);
   listView_->setSelectionBehavior(QAbstractItemView::SelectRows);
-  listView_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+  listView_->setEditTriggers(QAbstractItemView::EditKeyPressed);
   listView_->setUniformRowHeights(true);
   listView_->setContextMenuPolicy(Qt::CustomContextMenu);
 
@@ -50,7 +50,7 @@ BrowserTab::BrowserTab(QFileSystemModel *sharedModel, QWidget *parent)
   iconView_->setResizeMode(QListView::Adjust);
   iconView_->setSelectionMode(QAbstractItemView::ExtendedSelection);
   iconView_->setSelectionBehavior(QAbstractItemView::SelectItems);
-  iconView_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+  iconView_->setEditTriggers(QAbstractItemView::EditKeyPressed);
   iconView_->setContextMenuPolicy(Qt::CustomContextMenu);
   iconView_->setUniformItemSizes(true);
   iconView_->setWordWrap(true);
@@ -70,7 +70,7 @@ BrowserTab::BrowserTab(QFileSystemModel *sharedModel, QWidget *parent)
   compactView_->setViewMode(QListView::ListMode);
   compactView_->setSelectionMode(QAbstractItemView::ExtendedSelection);
   compactView_->setSelectionBehavior(QAbstractItemView::SelectItems);
-  compactView_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+  compactView_->setEditTriggers(QAbstractItemView::EditKeyPressed);
   compactView_->setContextMenuPolicy(Qt::CustomContextMenu);
   compactView_->setUniformItemSizes(true);
   compactView_->setIconSize(QSize(16, 16));
@@ -323,7 +323,15 @@ void BrowserTab::onContextMenu(const QPoint &pos) {
     aOpenWithDialog = openWithMenu->addAction("Other Application…");
   }
 
-  QAction *aProps = menu.addAction("Properties");
+  menu.addSeparator();
+QAction *aNewFolder = menu.addAction("New Folder…");
+QAction *aNewDoc = menu.addAction("New Document…");
+
+QAction *aRename = menu.addAction("Rename");
+  aRename->setEnabled(hasIndex);
+  aRename->setShortcut(Qt::Key_F2);
+
+QAction *aProps = menu.addAction("Properties");
   aProps->setEnabled(hasIndex);
   aProps->setShortcut(QKeySequence(Qt::ALT | Qt::Key_Return));
 
@@ -338,6 +346,28 @@ void BrowserTab::onContextMenu(const QPoint &pos) {
     openInNewTabIfDir(clickedPath);
     return;
   }
+if (chosen == aNewFolder) {
+  emit createNewFolderRequested();
+  return;
+}
+if (chosen == aNewDoc) {
+  emit createNewDocumentRequested();
+  return;
+}
+
+  if (chosen == aRename) {
+    if (hasIndex) {
+      auto *view = currentFileView();
+      if (view) {
+        const QModelIndex nameIdx = idx.sibling(idx.row(), 0);
+        view->setCurrentIndex(nameIdx);
+        view->selectionModel()->select(nameIdx, QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
+      }
+    }
+    beginInlineRename();
+    return;
+  }
+
   if (chosen == aProps) {
     emit propertiesRequested(clickedPath);
     return;
@@ -388,4 +418,25 @@ bool BrowserTab::eventFilter(QObject *obj, QEvent *event) {
   if (obj == iconView_->viewport()) return handleFor(iconView_);
   if (obj == compactView_->viewport()) return handleFor(compactView_);
   return QWidget::eventFilter(obj, event);
+}
+
+
+void BrowserTab::beginInlineRename() {
+  if (inTrash()) return;
+  auto *v = currentFileView();
+  if (!v) return;
+
+  QModelIndex idx;
+  // Prefer current index; fall back to first selected.
+  idx = v->currentIndex();
+  if (!idx.isValid()) {
+    const auto sel = v->selectionModel() ? v->selectionModel()->selectedIndexes() : QModelIndexList();
+    if (!sel.isEmpty()) idx = sel.first();
+  }
+  if (!idx.isValid()) return;
+
+  // Ensure we're editing the name column.
+  idx = idx.sibling(idx.row(), 0);
+  v->setCurrentIndex(idx);
+  v->edit(idx);
 }

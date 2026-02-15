@@ -7,14 +7,6 @@
 #include <atomic>
 #include <functional>
 
-/*
-  FileOps:
-  - recursive copy/move/delete/trash
-  - Linux FreeDesktop trash (~/.local/share/Trash/{files,info})
-  - byte-based progress for copy/move/trash (delete remains item-based)
-  - real cancellation (cooperative)
-  - conflict resolution callback (UI provided by JobManager)
-*/
 
 class FileOps final : public QObject {
   Q_OBJECT

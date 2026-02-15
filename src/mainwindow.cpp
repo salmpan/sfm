@@ -10,8 +10,8 @@
 #include <QShortcut>
 #include <QGuiApplication>
 #include <QClipboard>
-#include <QInputDialog>
 #include <QFileInfo>
+#include <QFile>
 #include <QDir>
 #include <QProgressDialog>
 #include <QMenuBar>
@@ -19,6 +19,7 @@
 #include <QAction>
 #include <QActionGroup>
 #include <QKeySequence>
+#include <QInputDialog>
 
 #include "terminal.h"
 #include "places.h"
@@ -35,6 +36,7 @@ MainWindow::MainWindow(QWidget *parent)
 
   fsModel_ = new QFileSystemModel(this);
   fsModel_->setFilter(QDir::AllEntries | QDir::NoDotAndDotDot | QDir::AllDirs | QDir::Hidden);
+  fsModel_->setReadOnly(false);
   fsModel_->setRootPath("/");
 
   jobs_ = new JobManager(this);
@@ -268,6 +270,14 @@ void MainWindow::createActions()
     if (i >= 0) closeTab(i);
   });
 
+  newFolderAct_ = new QAction(tr("New Folder…"), this);
+  newFolderAct_->setShortcut(QKeySequence("Ctrl+Shift+N"));
+  connect(newFolderAct_, &QAction::triggered, this, &MainWindow::createNewFolder);
+
+  newDocAct_ = new QAction(tr("New Document…"), this);
+  newDocAct_->setShortcut(QKeySequence::New);
+  connect(newDocAct_, &QAction::triggered, this, &MainWindow::createEmptyDocument);
+
   quitAct_ = new QAction(tr("Quit"), this);
   quitAct_->setShortcut(QKeySequence::Quit);
   connect(quitAct_, &QAction::triggered, this, &QWidget::close);
@@ -403,6 +413,9 @@ void MainWindow::createMenus()
   fileMenu_->addAction(newTabAct_);
   fileMenu_->addAction(closeTabAct_);
   fileMenu_->addSeparator();
+  fileMenu_->addAction(newFolderAct_);
+  fileMenu_->addAction(newDocAct_);
+  fileMenu_->addSeparator();
   fileMenu_->addAction(quitAct_);
 
   // Edit
@@ -484,6 +497,13 @@ void MainWindow::newTab(const QString &startLoc) {
       QMessageBox::warning(this, "Open With", err);
     }
   });
+connect(tab, &BrowserTab::createNewFolderRequested, this, [this]{
+  createNewFolder();
+});
+connect(tab, &BrowserTab::createNewDocumentRequested, this, [this]{
+  createEmptyDocument();
+});
+
 
   tab->navigateTo(startLoc, true);
   syncUiFromTab();
@@ -586,35 +606,8 @@ void MainWindow::pasteIntoCurrentDir() {
 }
 
 void MainWindow::renameSelected() {
-  if (currentTab()->inTrash()) return;
-
-  const QStringList paths = currentTab()->selectedPaths();
-  if (paths.size() != 1) return;
-
-  const QString oldPath = paths.front();
-  const QFileInfo fi(oldPath);
-  const QString dir = fi.absolutePath();
-
-  bool ok = false;
-  const QString newName = QInputDialog::getText(
-      this, "Rename", "New name:", QLineEdit::Normal, fi.fileName(), &ok);
-  if (!ok) return;
-
-  const QString trimmed = newName.trimmed();
-  if (trimmed.isEmpty() || trimmed == fi.fileName()) return;
-
-  const QString newPath = QDir(dir).filePath(trimmed);
-  if (QFileInfo::exists(newPath)) {
-    QMessageBox::warning(this, "Rename failed", "Target already exists:\n" + newPath);
-    return;
-  }
-
-  if (!QFile::rename(oldPath, newPath)) {
-    QMessageBox::warning(this, "Rename failed", "Could not rename:\n" + oldPath);
-    return;
-  }
-
-  refresh();
+  if (!currentTab()) return;
+  currentTab()->beginInlineRename();
 }
 
 void MainWindow::createNewFolder() {
@@ -638,6 +631,34 @@ void MainWindow::createNewFolder() {
     QMessageBox::warning(this, "New Folder failed", "Could not create:\n" + path);
     return;
   }
+  refresh();
+}
+
+void MainWindow::createEmptyDocument() {
+  if (!currentTab() || currentTab()->inTrash()) return;
+
+  bool ok = false;
+  const QString name = QInputDialog::getText(
+      this, "New Document", "File name:", QLineEdit::Normal, "New Document.txt", &ok);
+  if (!ok) return;
+
+  const QString trimmed = name.trimmed();
+  if (trimmed.isEmpty()) return;
+
+  QDir d(currentTab()->location());
+  const QString path = d.filePath(trimmed);
+  if (QFileInfo::exists(path)) {
+    QMessageBox::warning(this, "New Document failed", "Already exists:\n" + path);
+    return;
+  }
+
+  QFile f(path);
+  if (!f.open(QIODevice::WriteOnly)) {
+    QMessageBox::warning(this, "New Document failed", "Could not create:\n" + path);
+    return;
+  }
+  f.close();
+
   refresh();
 }
 

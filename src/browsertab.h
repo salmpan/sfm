@@ -40,6 +40,7 @@ public:
   bool canGoUp() const { return !inTrash() && location_ != "/"; }
 
   QStringList selectedPaths() const;
+  void beginInlineRename();
 
   QStringList selectedTrashedPaths() const;
   bool trashDeleteSelected(QString *errorOut = nullptr);
@@ -59,6 +60,9 @@ signals:
   void openFolderInNewTabRequested(const QString &folderPath);
 
   void propertiesRequested(const QString &path);
+
+  void createNewFolderRequested();
+  void createNewDocumentRequested();
 
   void openWithDialogRequested(const QString &filePath);
   void openWithAppRequested(const QString &desktopId, const QString &filePath);
