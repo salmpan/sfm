@@ -123,6 +123,18 @@ private:
   QAction* viewCompactAct_{nullptr};
   QAction* toggleHiddenAct_{nullptr};
 
+  QActionGroup* sortKeyGroup_{nullptr};
+  QAction* sortByNameAct_{nullptr};
+  QAction* sortBySizeAct_{nullptr};
+  QAction* sortByTypeAct_{nullptr};
+  QAction* sortByModifiedAct_{nullptr};
+
+  QActionGroup* sortOrderGroup_{nullptr};
+  QAction* sortAscAct_{nullptr};
+  QAction* sortDescAct_{nullptr};
+
+  QAction* foldersFirstAct_{nullptr};
+
   // Go
   QAction* backAct_{nullptr};
   QAction* forwardAct_{nullptr};

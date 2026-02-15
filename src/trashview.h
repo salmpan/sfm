@@ -1,17 +1,38 @@
 #pragma once
 
+#include <QModelIndex>
 #include <QWidget>
 #include <QStringList>
 
-class QListWidget;
-class QListWidgetItem;
+class QAbstractItemView;
+class QTreeView;
+class QListView;
+class QSortFilterProxyModel;
+class QStackedWidget;
+class TrashModel;
 
 class TrashView final : public QWidget {
   Q_OBJECT
 public:
+  enum class ViewMode {
+    GridIcons,
+    List,
+    Compact
+  };
+
   explicit TrashView(QWidget *parent = nullptr);
 
   void refresh();
+
+  void setViewMode(ViewMode m);
+  ViewMode viewMode() const { return viewMode_; }
+
+  void setSort(int column, Qt::SortOrder order);
+  int sortColumn() const { return sortColumn_; }
+  Qt::SortOrder sortOrder() const { return sortOrder_; }
+
+  void setFoldersFirst(bool on);
+  bool foldersFirst() const { return foldersFirst_; }
 
   // Returns absolute paths inside Trash/files for selected items.
   QStringList selectedTrashedPaths() const;
@@ -27,17 +48,25 @@ signals:
   void requestNavigate(const QString &path);
 
 private slots:
-  void onItemActivated(QListWidgetItem *it);
+  void onActivated(const QModelIndex &idx);
   void onContextMenu(const QPoint &pos);
 
 private:
-  static QString xdgDataHome();
-  static QString trashFilesDir();
-  static QString trashInfoDir();
-
-  static QString infoFileForTrashedName(const QString &trashedName);
-  static QString originalPathFromTrashInfo(const QString &trashInfoPath);
+  QAbstractItemView* currentView() const;
+  QModelIndexList selectedRows() const;
 
 private:
-  QListWidget *list_{nullptr};
+  TrashModel *model_{nullptr};
+  QSortFilterProxyModel *proxy_{nullptr};
+
+  QStackedWidget *stack_{nullptr};
+  QTreeView *listView_{nullptr};
+  QListView *iconView_{nullptr};
+  QListView *compactView_{nullptr};
+
+  ViewMode viewMode_{ViewMode::List};
+
+  int sortColumn_{0};
+  Qt::SortOrder sortOrder_{Qt::AscendingOrder};
+  bool foldersFirst_{true};
 };

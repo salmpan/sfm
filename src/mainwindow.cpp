@@ -20,6 +20,7 @@
 #include <QActionGroup>
 #include <QKeySequence>
 #include <QInputDialog>
+#include <QSignalBlocker>
 
 #include "terminal.h"
 #include "places.h"
@@ -371,6 +372,68 @@ void MainWindow::createActions()
     fsModel_->setFilter(f);
   });
 
+  // Sorting (per tab, applies to active pane)
+  sortKeyGroup_ = new QActionGroup(this);
+  sortKeyGroup_->setExclusive(true);
+
+  sortByNameAct_ = new QAction(tr("Sort by Name"), this);
+  sortByNameAct_->setCheckable(true);
+  sortKeyGroup_->addAction(sortByNameAct_);
+  connect(sortByNameAct_, &QAction::triggered, this, [this]{
+    if (auto *t = currentTab()) t->setSort(BrowserTab::SortKey::Name, t->sortState().order);
+    syncUiFromTab();
+  });
+
+  sortBySizeAct_ = new QAction(tr("Sort by Size"), this);
+  sortBySizeAct_->setCheckable(true);
+  sortKeyGroup_->addAction(sortBySizeAct_);
+  connect(sortBySizeAct_, &QAction::triggered, this, [this]{
+    if (auto *t = currentTab()) t->setSort(BrowserTab::SortKey::Size, t->sortState().order);
+    syncUiFromTab();
+  });
+
+  sortByTypeAct_ = new QAction(tr("Sort by Type"), this);
+  sortByTypeAct_->setCheckable(true);
+  sortKeyGroup_->addAction(sortByTypeAct_);
+  connect(sortByTypeAct_, &QAction::triggered, this, [this]{
+    if (auto *t = currentTab()) t->setSort(BrowserTab::SortKey::Type, t->sortState().order);
+    syncUiFromTab();
+  });
+
+  sortByModifiedAct_ = new QAction(tr("Sort by Modified"), this);
+  sortByModifiedAct_->setCheckable(true);
+  sortKeyGroup_->addAction(sortByModifiedAct_);
+  connect(sortByModifiedAct_, &QAction::triggered, this, [this]{
+    if (auto *t = currentTab()) t->setSort(BrowserTab::SortKey::Modified, t->sortState().order);
+    syncUiFromTab();
+  });
+
+  sortOrderGroup_ = new QActionGroup(this);
+  sortOrderGroup_->setExclusive(true);
+
+  sortAscAct_ = new QAction(tr("Ascending"), this);
+  sortAscAct_->setCheckable(true);
+  sortOrderGroup_->addAction(sortAscAct_);
+  connect(sortAscAct_, &QAction::triggered, this, [this]{
+    if (auto *t = currentTab()) t->setSort(t->sortState().key, Qt::AscendingOrder);
+    syncUiFromTab();
+  });
+
+  sortDescAct_ = new QAction(tr("Descending"), this);
+  sortDescAct_->setCheckable(true);
+  sortOrderGroup_->addAction(sortDescAct_);
+  connect(sortDescAct_, &QAction::triggered, this, [this]{
+    if (auto *t = currentTab()) t->setSort(t->sortState().key, Qt::DescendingOrder);
+    syncUiFromTab();
+  });
+
+  foldersFirstAct_ = new QAction(tr("Folders First"), this);
+  foldersFirstAct_->setCheckable(true);
+  connect(foldersFirstAct_, &QAction::toggled, this, [this](bool on){
+    if (auto *t = currentTab()) t->setFoldersFirst(on);
+    syncUiFromTab();
+  });
+
   // Go
   backAct_ = actBack_;
   forwardAct_ = actForward_;
@@ -435,6 +498,21 @@ void MainWindow::createMenus()
   viewMenu_->addAction(viewGridAct_);
   viewMenu_->addAction(viewListAct_);
   viewMenu_->addAction(viewCompactAct_);
+
+  viewMenu_->addSeparator();
+
+  QMenu *sortByMenu = viewMenu_->addMenu(tr("Sort By"));
+  sortByMenu->addAction(sortByNameAct_);
+  sortByMenu->addAction(sortBySizeAct_);
+  sortByMenu->addAction(sortByTypeAct_);
+  sortByMenu->addAction(sortByModifiedAct_);
+
+  QMenu *sortOrderMenu = viewMenu_->addMenu(tr("Sort Order"));
+  sortOrderMenu->addAction(sortAscAct_);
+  sortOrderMenu->addAction(sortDescAct_);
+
+  viewMenu_->addAction(foldersFirstAct_);
+
   viewMenu_->addSeparator();
   viewMenu_->addAction(toggleHiddenAct_);
 
@@ -518,6 +596,14 @@ void MainWindow::closeTab(int index) {
 }
 
 void MainWindow::syncUiFromTab() {
+  auto *tab = currentTab();
+  if (!tab) return;
+
+  // Actions may not exist yet during MainWindow construction.
+  if (!viewListAct_ || !viewGridAct_ || !viewCompactAct_) return;
+  if (!sortByNameAct_ || !sortBySizeAct_ || !sortByTypeAct_ || !sortByModifiedAct_) return;
+  if (!sortAscAct_ || !sortDescAct_ || !foldersFirstAct_) return;
+
   BrowserTab *t = currentTab();
   if (!t) return;
 
@@ -525,6 +611,31 @@ void MainWindow::syncUiFromTab() {
   actBack_->setEnabled(t->canGoBack());
   actForward_->setEnabled(t->canGoForward());
   actUp_->setEnabled(t->canGoUp());
+
+  // View mode checks (per tab + active pane)
+  switch (t->viewMode()) {
+    case BrowserTab::ViewMode::GridIcons: viewGridAct_->setChecked(true); break;
+    case BrowserTab::ViewMode::List:      viewListAct_->setChecked(true); break;
+    case BrowserTab::ViewMode::Compact:   viewCompactAct_->setChecked(true); break;
+  }
+
+  // Sort checks (per tab + active pane)
+  const auto st = t->sortState();
+  auto setCheckedNoSignal = [](QAction *a, bool on) {
+    if (!a) return;
+    const QSignalBlocker b(a);
+    a->setChecked(on);
+  };
+
+  setCheckedNoSignal(sortByNameAct_, st.key == BrowserTab::SortKey::Name);
+  setCheckedNoSignal(sortBySizeAct_, st.key == BrowserTab::SortKey::Size);
+  setCheckedNoSignal(sortByTypeAct_, st.key == BrowserTab::SortKey::Type);
+  setCheckedNoSignal(sortByModifiedAct_, st.key == BrowserTab::SortKey::Modified);
+
+  setCheckedNoSignal(sortAscAct_, st.order == Qt::AscendingOrder);
+  setCheckedNoSignal(sortDescAct_, st.order == Qt::DescendingOrder);
+
+  setCheckedNoSignal(foldersFirstAct_, st.foldersFirst);
 
   if (places_) places_->refresh();
 }

@@ -14,6 +14,7 @@ class QTreeView;
 class QListView;
 class QStackedWidget;
 class TrashView;
+class FileSortProxyModel;
 
 class BrowserTab final : public QWidget {
   Q_OBJECT
@@ -22,6 +23,19 @@ public:
     GridIcons,  // QListView::IconMode
     List,       // QTreeView detailed
     Compact     // QListView::ListMode
+  };
+
+  enum class SortKey {
+    Name = 0,
+    Size = 1,
+    Type = 2,
+    Modified = 3
+  };
+
+  struct SortState {
+    SortKey key{SortKey::Name};
+    Qt::SortOrder order{Qt::AscendingOrder};
+    bool foldersFirst{true};
   };
 
   explicit BrowserTab(QFileSystemModel *sharedModel, QWidget *parent = nullptr);
@@ -46,8 +60,14 @@ public:
   bool trashDeleteSelected(QString *errorOut = nullptr);
   bool trashRestoreSelected(QString *errorOut = nullptr);
 
+  // Applies to the active pane (filesystem or trash). Stored per pane.
   void setViewMode(ViewMode m);
-  ViewMode viewMode() const { return viewMode_; }
+  ViewMode viewMode() const { return inTrash() ? trashViewMode_ : fileViewMode_; }
+
+  // Sorting applies to the active pane (filesystem or trash). Stored per pane.
+  void setSort(SortKey key, Qt::SortOrder order);
+  void setFoldersFirst(bool on);
+  SortState sortState() const { return inTrash() ? trashSort_ : fileSort_; }
 
   TrashView* trashView() const { return trashView_; }
 
@@ -71,6 +91,7 @@ private slots:
   void onActivated(const QModelIndex &idx);
   void onContextMenu(const QPoint &pos);
   void onCtrlEnter();
+  void onHeaderSortChanged(int logicalIndex, Qt::SortOrder order);
 
 protected:
   bool eventFilter(QObject *obj, QEvent *event) override;
@@ -85,17 +106,27 @@ private:
   QString currentSelectedDirOrEmpty() const;
   void openInNewTabIfDir(const QString &path);
 
+  QModelIndex toSourceIndex(const QModelIndex &proxyIdx) const;
+  QString pathForIndex(const QModelIndex &proxyIdx) const;
+
 private:
   QFileSystemModel *fsModel_{nullptr};
+  FileSortProxyModel *fsProxy_{nullptr};
+
   // File views
   QStackedWidget *fileStack_{nullptr};
   QTreeView *listView_{nullptr};
   QListView *iconView_{nullptr};
   QListView *compactView_{nullptr};
-  ViewMode viewMode_{ViewMode::List};
+
+  ViewMode fileViewMode_{ViewMode::List};
+  SortState fileSort_{};
 
   QStackedWidget *stack_{nullptr};
   TrashView *trashView_{nullptr};
+
+  ViewMode trashViewMode_{ViewMode::List};
+  SortState trashSort_{};
 
   QString location_{"/"};
   std::vector<QString> history_;

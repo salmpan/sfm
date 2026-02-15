@@ -1,178 +1,345 @@
 #include "trashview.h"
 
-#include <QListWidget>
-#include <QVBoxLayout>
+#include <QAbstractItemView>
+#include <QCollator>
 #include <QDir>
-#include <QFileInfo>
 #include <QFile>
+#include <QFileInfo>
+#include <QHeaderView>
+#include <QListView>
 #include <QMenu>
 #include <QMessageBox>
-#include <QSettings>
+#include <QSortFilterProxyModel>
+#include <QStackedWidget>
+#include <QVBoxLayout>
+#include <QTreeView>
 #include <QDesktopServices>
 #include <QUrl>
 
-TrashView::TrashView(QWidget *parent) : QWidget(parent) {
-  list_ = new QListWidget(this);
-  list_->setSelectionMode(QAbstractItemView::ExtendedSelection);
-  list_->setContextMenuPolicy(Qt::CustomContextMenu);
+#include "trashmodel.h"
 
-  auto *layout = new QVBoxLayout(this);
-  layout->setContentsMargins(0,0,0,0);
-  layout->addWidget(list_);
+namespace {
 
-  connect(list_, &QListWidget::itemActivated, this, &TrashView::onItemActivated);
-  connect(list_, &QWidget::customContextMenuRequested, this, &TrashView::onContextMenu);
+class TrashSortProxy final : public QSortFilterProxyModel {
+public:
+  explicit TrashSortProxy(QObject *parent = nullptr)
+    : QSortFilterProxyModel(parent) {
+    collator_.setCaseSensitivity(Qt::CaseInsensitive);
+    collator_.setNumericMode(true);
+    setDynamicSortFilter(true);
+  }
 
-  refresh();
+  void setFoldersFirst(bool on) {
+    foldersFirst_ = on;
+    invalidate();
+  }
+
+protected:
+  bool lessThan(const QModelIndex &left, const QModelIndex &right) const override {
+    if (!sourceModel()) return false;
+    if (!left.isValid() || !right.isValid()) return false;
+    if (left.row() < 0 || right.row() < 0) return false;
+
+    const QModelIndex l0 = left.sibling(left.row(), 0);
+    const QModelIndex r0 = right.sibling(right.row(), 0);
+    if (!l0.isValid() || !r0.isValid()) return false;
+
+    const bool ld = sourceModel()->data(left.sibling(left.row(), 0), TrashModel::IsDirRole).toBool();
+    const bool rd = sourceModel()->data(right.sibling(right.row(), 0), TrashModel::IsDirRole).toBool();
+
+
+    if (foldersFirst_ && ld != rd) return ld;
+
+    const int col = left.column();
+    if (col == TrashModel::Name) {
+      const QString ln = sourceModel()->data(left, Qt::DisplayRole).toString();
+      const QString rn = sourceModel()->data(right, Qt::DisplayRole).toString();
+      return collator_.compare(ln, rn) < 0;
+    }
+
+    if (col == TrashModel::DeletedAt) {
+      const auto lt = sourceModel()->data(left, TrashModel::DeletedAtRole).toDateTime();
+      const auto rt = sourceModel()->data(right, TrashModel::DeletedAtRole).toDateTime();
+      if (lt != rt) return lt < rt;
+    }
+
+    if (col == TrashModel::Size) {
+      const qint64 ls = sourceModel()->data(left, TrashModel::SizeRole).toLongLong();
+      const qint64 rs = sourceModel()->data(right, TrashModel::SizeRole).toLongLong();
+      if (ls != rs) return ls < rs;
+    }
+
+    // Fallback: display role string compare
+    const QString l = sourceModel()->data(left, Qt::DisplayRole).toString();
+    const QString r = sourceModel()->data(right, Qt::DisplayRole).toString();
+    const int c = collator_.compare(l, r);
+    if (c != 0) return c < 0;
+
+    // Stable fallback by name
+    const QString ln = sourceModel()->data(left.sibling(left.row(), 0), Qt::DisplayRole).toString();
+    const QString rn = sourceModel()->data(right.sibling(right.row(), 0), Qt::DisplayRole).toString();
+    return collator_.compare(ln, rn) < 0;
+  }
+
+private:
+  bool foldersFirst_{true};
+  mutable QCollator collator_;
+};
+
+static bool removePathRecursively(const QString &p, QString *err) {
+  QFileInfo fi(p);
+  if (!fi.exists()) return true;
+  if (fi.isDir() && !fi.isSymLink()) {
+    QDir d(p);
+    if (!d.removeRecursively()) {
+      if (err) *err = "Failed to remove directory:\n" + p;
+      return false;
+    }
+    return true;
+  }
+  if (!QFile::remove(p)) {
+    if (err) *err = "Failed to remove file:\n" + p;
+    return false;
+  }
+  return true;
 }
 
-QString TrashView::xdgDataHome() {
-  const QString env = qEnvironmentVariable("XDG_DATA_HOME");
-  if (!env.isEmpty()) return env;
-  return QDir::homePath() + "/.local/share";
-}
+} // namespace
 
-QString TrashView::trashFilesDir() { return xdgDataHome() + "/Trash/files"; }
-QString TrashView::trashInfoDir()  { return xdgDataHome() + "/Trash/info"; }
+TrashView::TrashView(QWidget *parent)
+  : QWidget(parent) {
+  model_ = new TrashModel(this);
+  proxy_ = new TrashSortProxy(this);
+  proxy_->setSourceModel(model_);
+
+  stack_ = new QStackedWidget(this);
+
+  // Detailed list
+  listView_ = new QTreeView(stack_);
+  listView_->setModel(proxy_);
+  listView_->setRootIsDecorated(false);
+  listView_->setAlternatingRowColors(true);
+  listView_->setSelectionMode(QAbstractItemView::ExtendedSelection);
+  listView_->setSelectionBehavior(QAbstractItemView::SelectRows);
+  listView_->setContextMenuPolicy(Qt::CustomContextMenu);
+  listView_->setSortingEnabled(true);
+  listView_->header()->setStretchLastSection(true);
+
+  // Icon grid
+  iconView_ = new QListView(stack_);
+  iconView_->setModel(proxy_);
+  iconView_->setViewMode(QListView::IconMode);
+  iconView_->setResizeMode(QListView::Adjust);
+  iconView_->setSelectionMode(QAbstractItemView::ExtendedSelection);
+  iconView_->setContextMenuPolicy(Qt::CustomContextMenu);
+
+  // Compact list
+  compactView_ = new QListView(stack_);
+  compactView_->setModel(proxy_);
+  compactView_->setViewMode(QListView::ListMode);
+  compactView_->setSelectionMode(QAbstractItemView::ExtendedSelection);
+  compactView_->setContextMenuPolicy(Qt::CustomContextMenu);
+
+  stack_->addWidget(listView_);
+  stack_->addWidget(iconView_);
+  stack_->addWidget(compactView_);
+
+  auto *lay = new QVBoxLayout(this);
+  lay->setContentsMargins(0, 0, 0, 0);
+  lay->addWidget(stack_);
+
+  // Signals
+  connect(listView_, &QTreeView::activated, this, &TrashView::onActivated);
+  connect(iconView_, &QListView::activated, this, &TrashView::onActivated);
+  connect(compactView_, &QListView::activated, this, &TrashView::onActivated);
+
+  connect(listView_, &QWidget::customContextMenuRequested, this, &TrashView::onContextMenu);
+  connect(iconView_, &QWidget::customContextMenuRequested, this, &TrashView::onContextMenu);
+  connect(compactView_, &QWidget::customContextMenuRequested, this, &TrashView::onContextMenu);
+
+  setViewMode(ViewMode::List);
+  setSort(TrashModel::Name, Qt::AscendingOrder);
+}
 
 void TrashView::refresh() {
-  list_->clear();
+  model_->refresh();
+  proxy_->invalidate();
 
-  QDir d(trashFilesDir());
-  if (!d.exists()) return;
+  if (model_->rowCount() > 1)
+    proxy_->sort(sortColumn_, sortOrder_);
+}
 
-  const QFileInfoList items = d.entryInfoList(QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden,
-                                              QDir::Time | QDir::Reversed);
-  for (const QFileInfo &fi : items) {
-    auto *it = new QListWidgetItem(fi.fileName(), list_);
-    it->setData(Qt::UserRole, fi.absoluteFilePath()); // trashed path
-    it->setToolTip(fi.absoluteFilePath());
-    if (fi.isDir()) it->setIcon(QIcon::fromTheme("folder"));
-    else it->setIcon(QIcon::fromTheme("text-x-generic"));
+void TrashView::setViewMode(ViewMode m) {
+  viewMode_ = m;
+  switch (m) {
+    case ViewMode::List: stack_->setCurrentWidget(listView_); break;
+    case ViewMode::GridIcons: stack_->setCurrentWidget(iconView_); break;
+    case ViewMode::Compact: stack_->setCurrentWidget(compactView_); break;
   }
+}
+
+void TrashView::setSort(int column, Qt::SortOrder order) {
+  sortColumn_ = column;
+  sortOrder_ = order;
+  proxy_->sort(column, order);
+}
+
+void TrashView::setFoldersFirst(bool on) {
+  foldersFirst_ = on;
+  auto *p = dynamic_cast<TrashSortProxy*>(proxy_);
+  if (p) p->setFoldersFirst(on);
+  proxy_->sort(sortColumn_, sortOrder_);
+}
+
+QAbstractItemView* TrashView::currentView() const {
+  QWidget *w = stack_->currentWidget();
+  return qobject_cast<QAbstractItemView*>(w);
+}
+
+QModelIndexList TrashView::selectedRows() const {
+  auto *v = currentView();
+  if (!v || !v->selectionModel()) return {};
+  // Always use rows on column 0.
+  return v->selectionModel()->selectedRows(0);
 }
 
 QStringList TrashView::selectedTrashedPaths() const {
   QStringList out;
-  const auto sel = list_->selectedItems();
-  for (auto *it : sel) out << it->data(Qt::UserRole).toString();
+  for (const QModelIndex &pidx : selectedRows()) {
+    const QModelIndex src = proxy_->mapToSource(pidx);
+    const QString trashed = model_->data(src, TrashModel::TrashedPathRole).toString();
+    if (!trashed.isEmpty()) out << trashed;
+  }
   return out;
 }
 
-// Try to find info file matching trashed name by scanning (robust but fine for trash size).
-QString TrashView::infoFileForTrashedName(const QString &trashedName) {
-  QDir infoDir(trashInfoDir());
-  const QFileInfoList infos = infoDir.entryInfoList(QStringList() << "*.trashinfo",
-                                                    QDir::Files | QDir::NoDotAndDotDot);
-  for (const QFileInfo &fi : infos) {
-    const QString base = fi.completeBaseName(); // removes .trashinfo
-    if (base == trashedName) return fi.absoluteFilePath();
-  }
-  return {};
-}
-
-QString TrashView::originalPathFromTrashInfo(const QString &trashInfoPath) {
-  if (trashInfoPath.isEmpty()) return {};
-  QSettings ini(trashInfoPath, QSettings::IniFormat);
-  // ini.setIniCodec("UTF-8");
-  ini.beginGroup("Trash Info");
-  const QString p = ini.value("Path").toString();
-  ini.endGroup();
-  return p;
-}
-
-static bool removePathRecursively(const QString &p, QString *errorOut) {
-  QFileInfo fi(p);
-  if (!fi.exists()) return true;
-  if (fi.isFile() || fi.isSymLink()) {
-    if (!QFile::remove(p)) { if (errorOut) *errorOut = "Failed to remove: " + p; return false; }
-    return true;
-  }
-  if (fi.isDir()) {
-    QDir d(p);
-    if (!d.removeRecursively()) { if (errorOut) *errorOut = "Failed to remove directory: " + p; return false; }
-    return true;
-  }
-  if (errorOut) *errorOut = "Unsupported type: " + p;
-  return false;
-}
-
 bool TrashView::deleteSelectedPermanently(QString *errorOut) {
-  const auto sel = list_->selectedItems();
-  for (auto *it : sel) {
-    const QString trashedPath = it->data(Qt::UserRole).toString();
-    const QString name = QFileInfo(trashedPath).fileName();
+  const auto rows = selectedRows();
+  if (rows.isEmpty()) return true;
 
-    const QString infoPath = infoFileForTrashedName(name);
+  for (const QModelIndex &pidx : rows) {
+    const QModelIndex src = proxy_->mapToSource(pidx);
+    const QString trashed = model_->data(src, TrashModel::TrashedPathRole).toString();
+    const QString info = model_->data(src, TrashModel::InfoPathRole).toString();
 
     QString err;
-    if (!removePathRecursively(trashedPath, &err)) {
+    if (!removePathRecursively(trashed, &err)) {
       if (errorOut) *errorOut = err;
       return false;
     }
-    if (!infoPath.isEmpty()) QFile::remove(infoPath);
+    if (!info.isEmpty()) QFile::remove(info);
   }
+
   refresh();
   return true;
 }
 
 bool TrashView::restoreSelected(QString *errorOut) {
-  const auto sel = list_->selectedItems();
-  for (auto *it : sel) {
-    const QString trashedPath = it->data(Qt::UserRole).toString();
-    const QString name = QFileInfo(trashedPath).fileName();
-    const QString infoPath = infoFileForTrashedName(name);
-    const QString orig = originalPathFromTrashInfo(infoPath);
+  const auto rows = selectedRows();
+  if (rows.isEmpty()) return true;
 
-    if (orig.isEmpty()) {
-      if (errorOut) *errorOut = "Missing original path for: " + name;
+  for (const QModelIndex &pidx : rows) {
+    const QModelIndex src = proxy_->mapToSource(pidx);
+    const QString trashed = model_->data(src, TrashModel::TrashedPathRole).toString();
+    const QString info = model_->data(src, TrashModel::InfoPathRole).toString();
+    const QString orig = model_->data(src, TrashModel::OriginalPathRole).toString();
+
+    if (trashed.isEmpty() || orig.isEmpty()) {
+      if (errorOut) *errorOut = "Missing trash metadata.";
       return false;
     }
 
-    QDir().mkpath(QFileInfo(orig).absolutePath());
+    const QFileInfo origInfo(orig);
+    QDir parentDir = origInfo.dir();
+    if (!parentDir.exists()) {
+      if (!QDir().mkpath(parentDir.absolutePath())) {
+        if (errorOut) *errorOut = "Could not create parent folder:\n" + parentDir.absolutePath();
+        return false;
+      }
+    }
 
-    // Prefer rename restore
-    if (!QFile::rename(trashedPath, orig)) {
-      // Cross-device etc; fallback: open location hint
-      if (errorOut) *errorOut = "Failed to restore (rename failed): " + name;
+    if (QFileInfo::exists(orig)) {
+      if (errorOut) *errorOut = "Restore destination already exists:\n" + orig;
       return false;
     }
 
-    if (!infoPath.isEmpty()) QFile::remove(infoPath);
+    if (!QFile::rename(trashed, orig)) {
+      if (errorOut) *errorOut = "Failed to restore:\n" + orig;
+      return false;
+    }
+
+    if (!info.isEmpty()) QFile::remove(info);
   }
+
   refresh();
   return true;
 }
 
-void TrashView::onItemActivated(QListWidgetItem *it) {
-  if (!it) return;
-  const QString p = it->data(Qt::UserRole).toString();
-  QFileInfo fi(p);
-  if (fi.isDir()) {
-    emit requestNavigate(p);
-  } else {
-    QDesktopServices::openUrl(QUrl::fromLocalFile(p));
+void TrashView::onActivated(const QModelIndex &pidx) {
+  if (!pidx.isValid()) return;
+  const QModelIndex src = proxy_->mapToSource(pidx.sibling(pidx.row(), 0));
+
+  const QString trashed = model_->data(src, TrashModel::TrashedPathRole).toString();
+  const bool isDir = model_->data(src, TrashModel::IsDirRole).toBool();
+
+  if (trashed.isEmpty()) return;
+
+  if (isDir) {
+    emit requestNavigate(trashed);
+    return;
   }
+
+  QDesktopServices::openUrl(QUrl::fromLocalFile(trashed));
 }
 
 void TrashView::onContextMenu(const QPoint &pos) {
-  QListWidgetItem *it = list_->itemAt(pos);
-  if (!it) return;
+  auto *v = currentView();
+  if (!v) return;
+
+  const QModelIndex idx = v->indexAt(pos);
+  if (idx.isValid()) {
+    v->setCurrentIndex(idx);
+  }
 
   QMenu menu(this);
-  QAction *aOpen = menu.addAction("Open");
-  QAction *aRestore = menu.addAction("Restore");
-  QAction *aDelete = menu.addAction("Delete Permanently");
 
-  QAction *chosen = menu.exec(list_->viewport()->mapToGlobal(pos));
+  QAction *actOpen = menu.addAction("Open");
+  QAction *actRestore = menu.addAction("Restore");
+  QAction *actDelete = menu.addAction("Delete Permanently");
+  menu.addSeparator();
+  QAction *actRefresh = menu.addAction("Refresh");
+
+  QAction *chosen = menu.exec(v->viewport()->mapToGlobal(pos));
   if (!chosen) return;
 
-  if (chosen == aOpen) onItemActivated(it);
-  else if (chosen == aRestore) {
+  if (chosen == actOpen) {
+    onActivated(v->currentIndex());
+    return;
+  }
+
+  if (chosen == actRestore) {
     QString err;
     if (!restoreSelected(&err)) QMessageBox::warning(this, "Restore failed", err);
-  } else if (chosen == aDelete) {
+    return;
+  }
+
+  if (chosen == actDelete) {
+    const auto sel = selectedTrashedPaths();
+    if (sel.isEmpty()) return;
+    const auto resp = QMessageBox::warning(
+        this, "Delete from Trash",
+        "Permanently delete the selected item(s) from Trash?\nThis cannot be undone.\n\n"
+        "Delete " + QString::number(sel.size()) + " item(s)?",
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    if (resp != QMessageBox::Yes) return;
+
     QString err;
     if (!deleteSelectedPermanently(&err)) QMessageBox::warning(this, "Delete failed", err);
+    return;
+  }
+
+  if (chosen == actRefresh) {
+    refresh();
+    return;
   }
 }

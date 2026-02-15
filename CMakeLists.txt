@@ -33,6 +33,12 @@ add_executable(sfm
   src/trashview.h
   src/trashview.cpp
 
+  src/trashmodel.h
+  src/trashmodel.cpp
+
+  src/filesortproxy.h
+  src/filesortproxy.cpp
+
   src/browsertab.h
   src/browsertab.cpp
 
