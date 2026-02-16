@@ -15,6 +15,7 @@
 #include <QTreeView>
 #include <QDesktopServices>
 #include <QUrl>
+#include <QItemSelectionModel>
 
 #include "trashmodel.h"
 
@@ -157,13 +158,36 @@ TrashView::TrashView(QWidget *parent)
   connect(iconView_, &QWidget::customContextMenuRequested, this, &TrashView::onContextMenu);
   connect(compactView_, &QWidget::customContextMenuRequested, this, &TrashView::onContextMenu);
 
+  // Inline status bar updates (safe + slightly redundant)
+  auto hookSelection = [this](QAbstractItemView *v) {
+    if (!v || !v->selectionModel()) return;
+    connect(v->selectionModel(), &QItemSelectionModel::selectionChanged, this, [this]{
+      emit selectionChanged();
+    });
+  };
+  hookSelection(listView_);
+  hookSelection(iconView_);
+  hookSelection(compactView_);
+
+  connect(proxy_, &QAbstractItemModel::modelReset, this, [this]{ emit itemCountChanged(); });
+  connect(proxy_, &QAbstractItemModel::layoutChanged, this, [this]{ emit itemCountChanged(); });
+  connect(proxy_, &QAbstractItemModel::rowsInserted, this, [this]{ emit itemCountChanged(); });
+  connect(proxy_, &QAbstractItemModel::rowsRemoved, this, [this]{ emit itemCountChanged(); });
+
   setViewMode(ViewMode::List);
   setSort(TrashModel::Name, Qt::AscendingOrder);
+}
+
+int TrashView::itemCount() const {
+  return proxy_ ? proxy_->rowCount() : 0;
 }
 
 void TrashView::refresh() {
   model_->refresh();
   proxy_->invalidate();
+
+  emit itemCountChanged();
+  emit selectionChanged();
 
   if (model_->rowCount() > 1)
     proxy_->sort(sortColumn_, sortOrder_);

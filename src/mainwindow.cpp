@@ -21,6 +21,9 @@
 #include <QKeySequence>
 #include <QInputDialog>
 #include <QSignalBlocker>
+#include <QLabel>
+#include <QStatusBar>
+#include <QStorageInfo>
 
 #include "terminal.h"
 #include "places.h"
@@ -157,6 +160,8 @@ MainWindow::MainWindow(QWidget *parent)
   split->setStretchFactor(0, 0);
   split->setStretchFactor(1, 1);
   setCentralWidget(split);
+
+  initInlineStatusBar();
 
   connect(tabs_, &QTabWidget::currentChanged, this, [this](int){ syncUiFromTab(); });
   connect(tabs_, &QTabWidget::tabCloseRequested, this, &MainWindow::closeTab);
@@ -531,6 +536,74 @@ void MainWindow::createMenus()
   toolsMenu_->addAction(emptyTrashAct_);
 }
 
+void MainWindow::initInlineStatusBar() {
+  statusItemCount_ = new QLabel(this);
+  statusSelectedSize_ = new QLabel(this);
+  statusFreeSpace_ = new QLabel(this);
+
+  statusItemCount_->setText("0 items");
+  statusSelectedSize_->setText("Selected: —");
+  statusFreeSpace_->setText("Free: —");
+
+  // Left-to-right: count, selected size, free space (right aligned)
+  statusBar()->addWidget(statusItemCount_, 1);
+  statusBar()->addWidget(statusSelectedSize_, 1);
+  statusBar()->addPermanentWidget(statusFreeSpace_, 0);
+}
+
+void MainWindow::updateInlineStatusBar() {
+  updateStatusItemCount();
+  updateStatusSelectedSize();
+  updateStatusFreeSpace();
+}
+
+void MainWindow::updateStatusItemCount() {
+  if (!statusItemCount_) return;
+  auto *t = currentTab();
+  const int n = t ? t->itemCount() : 0;
+  statusItemCount_->setText(QString::number(n) + (n == 1 ? " item" : " items"));
+}
+
+void MainWindow::updateStatusSelectedSize() {
+  if (!statusSelectedSize_) return;
+  auto *t = currentTab();
+  if (!t) {
+    statusSelectedSize_->setText("Selected: —");
+    return;
+  }
+
+  const QStringList sel = t->inTrash() ? t->selectedTrashedPaths() : t->selectedPaths();
+  if (sel.isEmpty()) {
+    statusSelectedSize_->setText("Selected: —");
+    return;
+  }
+
+  const auto info = t->selectedSizeInfo();
+  if (info.pending) {
+    if (info.bytes > 0) statusSelectedSize_->setText("Selected: " + humanBytes(info.bytes) + " + …");
+    else statusSelectedSize_->setText("Selected: …");
+    return;
+  }
+  statusSelectedSize_->setText("Selected: " + humanBytes(info.bytes));
+}
+
+void MainWindow::updateStatusFreeSpace() {
+  if (!statusFreeSpace_) return;
+  auto *t = currentTab();
+  if (!t) {
+    statusFreeSpace_->setText("Free: —");
+    return;
+  }
+
+  const QString p = t->storagePath();
+  QStorageInfo si(p);
+  if (!si.isValid() || !si.isReady()) {
+    statusFreeSpace_->setText("Free: —");
+    return;
+  }
+  statusFreeSpace_->setText("Free: " + humanBytes((qint64)si.bytesAvailable()));
+}
+
 QString MainWindow::humanBytes(qint64 b) {
   const char *units[] = {"B","KiB","MiB","GiB","TiB"};
   double v = (double)b;
@@ -554,6 +627,17 @@ void MainWindow::newTab(const QString &startLoc) {
   connect(tab, &BrowserTab::titleChanged, this, [this, tab](const QString &title){
     const int i = tabs_->indexOf(tab);
     if (i >= 0) tabs_->setTabText(i, title);
+  });
+
+  // Inline status bar updates (safe + slightly redundant)
+  connect(tab, &BrowserTab::selectionChanged, this, [this, tab]{
+    if (tab == currentTab()) updateStatusSelectedSize();
+  });
+  connect(tab, &BrowserTab::itemCountChanged, this, [this, tab]{
+    if (tab == currentTab()) updateStatusItemCount();
+  });
+  connect(tab, &BrowserTab::storageChanged, this, [this, tab]{
+    if (tab == currentTab()) updateStatusFreeSpace();
   });
   connect(tab, &BrowserTab::requestNavigate, this, [this](const QString &path){
     currentTab()->navigateTo(path, true);
@@ -598,6 +682,9 @@ void MainWindow::closeTab(int index) {
 void MainWindow::syncUiFromTab() {
   auto *tab = currentTab();
   if (!tab) return;
+
+  // Always keep the inline status bar current.
+  updateInlineStatusBar();
 
   // Actions may not exist yet during MainWindow construction.
   if (!viewListAct_ || !viewGridAct_ || !viewCompactAct_) return;

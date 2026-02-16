@@ -18,6 +18,9 @@
 #include <QMenu>
 #include <QMouseEvent>
 #include <QKeyEvent>
+#include <QScrollBar>
+
+#include <utility>
 
 BrowserTab::BrowserTab(QFileSystemModel *sharedModel, QWidget *parent)
   : QWidget(parent), fsModel_(sharedModel) {
@@ -90,10 +93,57 @@ BrowserTab::BrowserTab(QFileSystemModel *sharedModel, QWidget *parent)
 
   compactView_->viewport()->installEventFilter(this);
 
+  // Visible-folder-size prefetch (all visible rows, throttled in the proxy).
+  prefetchTimer_ = new QTimer(this);
+  prefetchTimer_->setSingleShot(true);
+  prefetchTimer_->setInterval(50); // coalesce scroll/layout bursts
+  connect(prefetchTimer_, &QTimer::timeout, this, [this]{ prefetchVisibleFolderSizes_(); });
+
+  // Inline status bar updates (safe + slightly redundant)
+  auto hookSelection = [this](QAbstractItemView *v) {
+    if (!v || !v->selectionModel()) return;
+    connect(v->selectionModel(), &QItemSelectionModel::selectionChanged, this, [this]{
+      emit selectionChanged();
+
+      // Selected folders should have sizes requested.
+      if (!inTrash() && fsProxy_) {
+        auto *cv = currentFileView();
+        if (!cv || !cv->selectionModel()) return;
+        const auto rows = cv->selectionModel()->selectedRows(0);
+        for (const auto &r0 : rows) {
+          fsProxy_->requestFolderSize(r0.sibling(r0.row(), 1));
+        }
+      }
+    });
+  };
+
+  hookSelection(listView_);
+  hookSelection(iconView_);
+  hookSelection(compactView_);
+
+  // Directory listing count changes (proxy reflects current root + sorting)
+  if (fsProxy_) {
+    connect(fsProxy_, &QAbstractItemModel::modelReset, this, [this]{ emit itemCountChanged(); });
+    connect(fsProxy_, &QAbstractItemModel::layoutChanged, this, [this]{ emit itemCountChanged(); });
+    connect(fsProxy_, &QAbstractItemModel::rowsInserted, this, [this]{ emit itemCountChanged(); });
+    connect(fsProxy_, &QAbstractItemModel::rowsRemoved, this, [this]{ emit itemCountChanged(); });
+
+    // Folder-size computations update later; refresh selected-size label only when a folder size finishes.
+    connect(fsProxy_, &FileSortProxyModel::folderSizeReady, this, [this]{ emit selectionChanged(); });
+  }
+
+  // Prefetch directory sizes for all visible folders (safe + slightly redundant).
+  hookPrefetchSignals_(listView_);
+  hookPrefetchSignals_(iconView_);
+  hookPrefetchSignals_(compactView_);
+
   trashView_ = new TrashView(this);
   connect(trashView_, &TrashView::requestNavigate, this, [this](const QString &p){
     emit requestNavigate(p);
   });
+
+  connect(trashView_, &TrashView::selectionChanged, this, [this]{ emit selectionChanged(); });
+  connect(trashView_, &TrashView::itemCountChanged, this, [this]{ emit itemCountChanged(); });
 
   fileStack_ = new QStackedWidget(this);
   fileStack_->addWidget(iconView_);
@@ -126,6 +176,55 @@ BrowserTab::BrowserTab(QFileSystemModel *sharedModel, QWidget *parent)
   setFoldersFirst(true);
 
   navigateTo(QDir::homePath(), true);
+}
+
+void BrowserTab::hookPrefetchSignals_(QAbstractItemView *v) {
+  if (!v) return;
+  if (auto *sb = v->verticalScrollBar()) {
+    connect(sb, &QScrollBar::valueChanged, this, [this]{ schedulePrefetchVisibleFolderSizes_(); });
+    connect(sb, &QScrollBar::rangeChanged, this, [this]{ schedulePrefetchVisibleFolderSizes_(); });
+  }
+  if (auto *sb = v->horizontalScrollBar()) {
+    connect(sb, &QScrollBar::valueChanged, this, [this]{ schedulePrefetchVisibleFolderSizes_(); });
+  }
+  // Model/layout changes can alter what's visible.
+  connect(v, &QAbstractItemView::viewportEntered, this, [this]{ schedulePrefetchVisibleFolderSizes_(); });
+}
+
+void BrowserTab::schedulePrefetchVisibleFolderSizes_() {
+  if (inTrash()) return;
+  if (!fsProxy_ || !prefetchTimer_) return;
+  prefetchTimer_->start();
+}
+
+void BrowserTab::prefetchVisibleFolderSizes_() {
+  if (inTrash()) return;
+  if (!fsProxy_) return;
+
+  // Request folder sizes for ALL rows currently visible in the active view.
+  QAbstractItemView *v = currentFileView();
+  if (!v || !v->isVisible()) return;
+
+  const QModelIndex root = v->rootIndex();
+  const int rows = fsProxy_->rowCount(root);
+  if (rows <= 0) return;
+
+  const QModelIndex topIdx = v->indexAt(QPoint(0, 0));
+  const QModelIndex botIdx = v->indexAt(QPoint(0, v->viewport()->height() - 1));
+
+  int topRow = topIdx.isValid() ? topIdx.row() : 0;
+  int botRow = botIdx.isValid() ? botIdx.row() : (rows - 1);
+
+  if (topRow < 0) topRow = 0;
+  if (botRow < 0) botRow = 0;
+  if (botRow >= rows) botRow = rows - 1;
+  if (topRow > botRow) std::swap(topRow, botRow);
+
+  for (int r = topRow; r <= botRow; ++r) {
+    const QModelIndex idx0 = fsProxy_->index(r, 0, root);
+    if (!idx0.isValid()) continue;
+    fsProxy_->requestFolderSize(idx0.sibling(r, 1));
+  }
 }
 
 QAbstractItemView* BrowserTab::currentFileView() const {
@@ -205,6 +304,9 @@ void BrowserTab::navigateTo(const QString &loc, bool pushHistory) {
     location_ = "trash:///";
     showTrashPane();
     emit locationChanged(location_);
+    emit storageChanged();
+    emit itemCountChanged();
+    emit selectionChanged();
     setTabTitleFromLocation();
     return;
   }
@@ -225,7 +327,13 @@ void BrowserTab::navigateTo(const QString &loc, bool pushHistory) {
 
   showFilePane();
   emit locationChanged(location_);
+  emit storageChanged();
+  emit itemCountChanged();
+  emit selectionChanged();
   setTabTitleFromLocation();
+
+  // Kick visible-folder-size prefetch for the active view.
+  schedulePrefetchVisibleFolderSizes_();
 }
 
 void BrowserTab::setViewMode(ViewMode m) {
@@ -247,6 +355,8 @@ void BrowserTab::setViewMode(ViewMode m) {
     case ViewMode::List:      fileStack_->setCurrentWidget(listView_); break;
     case ViewMode::Compact:   fileStack_->setCurrentWidget(compactView_); break;
   }
+
+  schedulePrefetchVisibleFolderSizes_();
 }
 
 void BrowserTab::setSort(SortKey key, Qt::SortOrder order) {
@@ -306,6 +416,87 @@ void BrowserTab::goUp() {
 void BrowserTab::refresh() {
   if (inTrash()) { if (trashView_) trashView_->refresh(); return; }
   navigateTo(location_, false);
+}
+
+int BrowserTab::itemCount() const {
+  if (inTrash()) {
+    return trashView_ ? trashView_->itemCount() : 0;
+  }
+
+  // Count the current directory listing in the active proxy/root.
+  // Any of the file views shares the same model + root index.
+  if (!fsProxy_) return 0;
+  const QModelIndex root = listView_ ? listView_->rootIndex() : QModelIndex();
+  return fsProxy_->rowCount(root);
+}
+
+qint64 BrowserTab::selectedSizeBytesFast() const {
+  qint64 total = 0;
+
+  // Trash selection: sum sizes of selected trashed file paths.
+  if (inTrash()) {
+    const QStringList paths = selectedTrashedPaths();
+    for (const QString &p : paths) {
+      QFileInfo fi(p);
+      if (fi.isFile()) total += fi.size();
+    }
+    return total;
+  }
+
+  const QStringList paths = selectedPaths();
+  for (const QString &p : paths) {
+    QFileInfo fi(p);
+    if (fi.isFile()) total += fi.size();
+  }
+  return total;
+}
+
+BrowserTab::SelectedSizeInfo BrowserTab::selectedSizeInfo() const {
+  SelectedSizeInfo info;
+
+  if (inTrash()) {
+    const QStringList paths = selectedTrashedPaths();
+    for (const QString &p : paths) {
+      QFileInfo fi(p);
+      if (fi.isFile()) info.bytes += fi.size();
+    }
+    return info;
+  }
+
+  auto *v = currentFileView();
+  if (!v || !v->selectionModel() || !fsProxy_ || !fsModel_) return info;
+
+  QModelIndexList idxs;
+  if (auto *tv = qobject_cast<QTreeView*>(v)) idxs = tv->selectionModel()->selectedRows(0);
+  else idxs = v->selectionModel()->selectedIndexes();
+
+  for (const QModelIndex &pi0 : idxs) {
+    const QModelIndex pi = pi0.sibling(pi0.row(), 0);
+    const QModelIndex src = toSourceIndex(pi);
+    if (!src.isValid()) continue;
+    const QFileInfo fi = fsModel_->fileInfo(src);
+    if (fi.isFile()) {
+      info.bytes += fi.size();
+      continue;
+    }
+    if (fi.isDir()) {
+      // Ask the proxy for raw bytes in the size column. If not ready, it will trigger async calc.
+      const QModelIndex sizeIdx = pi.sibling(pi.row(), 1);
+      const QVariant vbytes = fsProxy_->data(sizeIdx, Qt::UserRole);
+      if (!vbytes.isValid()) {
+        info.pending = true;
+      } else {
+        info.bytes += vbytes.toLongLong();
+      }
+    }
+  }
+
+  return info;
+}
+
+QString BrowserTab::storagePath() const {
+  if (inTrash()) return QDir::homePath();
+  return location_.isEmpty() ? QStringLiteral("/") : location_;
 }
 
 QStringList BrowserTab::selectedPaths() const {

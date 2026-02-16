@@ -5,6 +5,8 @@
 #include <QtGlobal>
 #include <QStringList>
 
+class QLabel;
+
 class QFileSystemModel;
 class QProgressDialog;
 class QTabWidget;
@@ -42,6 +44,12 @@ private:
   };
 
   static QString humanBytes(qint64 b);
+
+  void initInlineStatusBar();
+  void updateInlineStatusBar();
+  void updateStatusItemCount();
+  void updateStatusSelectedSize();
+  void updateStatusFreeSpace();
 
   BrowserTab* currentTab() const;
 
@@ -146,4 +154,9 @@ private:
   // Tools
   QAction* openTerminalAct_{nullptr};
   QAction* emptyTrashAct_{nullptr};
+
+  // Inline status bar widgets
+  QLabel* statusItemCount_{nullptr};
+  QLabel* statusSelectedSize_{nullptr};
+  QLabel* statusFreeSpace_{nullptr};
 };

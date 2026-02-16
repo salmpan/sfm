@@ -6,6 +6,7 @@
 #include <QEvent>
 #include <QWidget>
 #include <QString>
+#include <QTimer>
 #include <vector>
 
 class QFileSystemModel;
@@ -43,6 +44,19 @@ public:
   QString location() const { return location_; }
   bool inTrash() const { return location_ == "trash:///"; }
 
+  // Inline status bar helpers
+  int itemCount() const;
+  qint64 selectedSizeBytesFast() const; // files-only (dirs count as 0)
+  QString storagePath() const;          // path used for free-space lookup
+
+  struct SelectedSizeInfo {
+    qint64 bytes{0};
+    bool pending{false};
+  };
+
+  // Includes folders when their size is available; triggers async folder-size computation.
+  SelectedSizeInfo selectedSizeInfo() const;
+
   void navigateTo(const QString &loc, bool pushHistory = true);
   void goBack();
   void goForward();
@@ -75,6 +89,11 @@ signals:
   void locationChanged(const QString &loc);
   void titleChanged(const QString &title);
 
+  // Inline status bar notifications (emitted redundantly from multiple views).
+  void selectionChanged();
+  void itemCountChanged();
+  void storageChanged();
+
   void requestNavigate(const QString &path);
 
   void openFolderInNewTabRequested(const QString &folderPath);
@@ -98,6 +117,9 @@ protected:
 
 private:
   QAbstractItemView* currentFileView() const;
+  void schedulePrefetchVisibleFolderSizes_();
+  void prefetchVisibleFolderSizes_();
+  void hookPrefetchSignals_(QAbstractItemView *v);
   void setTabTitleFromLocation();
   void showFilePane();
   void showTrashPane();
@@ -118,6 +140,8 @@ private:
   QTreeView *listView_{nullptr};
   QListView *iconView_{nullptr};
   QListView *compactView_{nullptr};
+
+  QTimer *prefetchTimer_{nullptr};
 
   ViewMode fileViewMode_{ViewMode::List};
   SortState fileSort_{};

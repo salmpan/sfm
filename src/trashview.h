@@ -37,6 +37,9 @@ public:
   // Returns absolute paths inside Trash/files for selected items.
   QStringList selectedTrashedPaths() const;
 
+  // Inline status bar helpers
+  int itemCount() const;
+
   // Permanently delete selected from Trash/files and matching .trashinfo entries.
   bool deleteSelectedPermanently(QString *errorOut = nullptr);
 
@@ -46,6 +49,10 @@ public:
 signals:
   // request to navigate into a trashed folder (path inside Trash/files)
   void requestNavigate(const QString &path);
+
+  // Inline status bar notifications
+  void selectionChanged();
+  void itemCountChanged();
 
 private slots:
   void onActivated(const QModelIndex &idx);
