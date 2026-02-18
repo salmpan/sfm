@@ -50,6 +50,9 @@ add_executable(sfm
 
   src/openwithdialog.h
   src/openwithdialog.cpp
+
+  src/breadcrumbbar.h
+  src/breadcrumbbar.cpp
 )
 
 target_link_libraries(sfm PRIVATE Qt6::Widgets Qt6::DBus Qt6::Concurrent)

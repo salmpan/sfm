@@ -2,6 +2,8 @@
 #include <QToolBar>
 #include <QLineEdit>
 #include <QTabWidget>
+#include <QStackedWidget>
+#include <QToolButton>
 #include <QSplitter>
 #include <QFileSystemModel>
 #include <QAction>
@@ -31,6 +33,7 @@
 #include "jobmanager.h"
 #include "propertiesdialog.h"
 #include "openwithdialog.h"
+#include "breadcrumbbar.h"
 #include "mainwindow.h"
 
 MainWindow::MainWindow(QWidget *parent)
@@ -135,12 +138,46 @@ MainWindow::MainWindow(QWidget *parent)
 
   tb->addSeparator();
 
-  address_ = new QLineEdit(this);
+  // Path bar (breadcrumb <-> line edit)
+  pathStack_ = new QStackedWidget(this);
+  pathStack_->setMinimumWidth(520);
+
+  breadcrumbs_ = new BreadcrumbBar(pathStack_);
+  address_ = new QLineEdit(pathStack_);
   address_->setClearButtonEnabled(true);
   address_->setPlaceholderText("Path or trash:///");
-  address_->setMinimumWidth(520);
-  tb->addWidget(address_);
+
+  pathStack_->addWidget(breadcrumbs_);
+  pathStack_->addWidget(address_);
+  pathStack_->setCurrentWidget(breadcrumbs_);
+
+  tb->addWidget(pathStack_);
+
   connect(address_, &QLineEdit::returnPressed, this, &MainWindow::onAddressEntered);
+  connect(breadcrumbs_, &BreadcrumbBar::pathActivated, this, [this](const QString &p){
+    currentTab()->navigateTo(p, true);
+    syncUiFromTab();
+  });
+  connect(breadcrumbs_, &BreadcrumbBar::openInNewTabRequested, this, [this](const QString &p){
+    newTab(p);
+  });
+  connect(breadcrumbs_, &BreadcrumbBar::requestEdit, this, [this]{
+    pathStack_->setCurrentWidget(address_);
+    address_->setFocus(Qt::ShortcutFocusReason);
+    address_->selectAll();
+  });
+
+  // Ctrl+L focuses the address bar; Esc returns to breadcrumbs.
+  auto *scAddr = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_L), this);
+  connect(scAddr, &QShortcut::activated, this, [this]{
+    pathStack_->setCurrentWidget(address_);
+    address_->setFocus(Qt::ShortcutFocusReason);
+    address_->selectAll();
+  });
+  auto *scCrumbs = new QShortcut(QKeySequence(Qt::Key_Escape), address_);
+  connect(scCrumbs, &QShortcut::activated, this, [this]{
+    pathStack_->setCurrentWidget(breadcrumbs_);
+  });
 
   // Central
   auto *split = new QSplitter(this);
@@ -195,11 +232,6 @@ MainWindow::MainWindow(QWidget *parent)
   });
 
   // General shortcuts
-  auto *scFocusPath = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_L), this);
-  connect(scFocusPath, &QShortcut::activated, this, [this]{
-    address_->setFocus();
-    address_->selectAll();
-  });
 
   auto *scProps = new QShortcut(QKeySequence(Qt::ALT | Qt::Key_Return), this);
   connect(scProps, &QShortcut::activated, this, &MainWindow::showPropertiesForSelection);
@@ -680,21 +712,22 @@ void MainWindow::closeTab(int index) {
 }
 
 void MainWindow::syncUiFromTab() {
-  auto *tab = currentTab();
-  if (!tab) return;
+  auto *t = currentTab();
+  if (!t) return;
 
   // Always keep the inline status bar current.
   updateInlineStatusBar();
+
+  // Location UI should update even during early construction.
+  const QString loc = t->location();
+  if (address_->text() != loc) address_->setText(loc);
+  breadcrumbs_->setLocation(loc);
 
   // Actions may not exist yet during MainWindow construction.
   if (!viewListAct_ || !viewGridAct_ || !viewCompactAct_) return;
   if (!sortByNameAct_ || !sortBySizeAct_ || !sortByTypeAct_ || !sortByModifiedAct_) return;
   if (!sortAscAct_ || !sortDescAct_ || !foldersFirstAct_) return;
 
-  BrowserTab *t = currentTab();
-  if (!t) return;
-
-  address_->setText(t->location());
   actBack_->setEnabled(t->canGoBack());
   actForward_->setEnabled(t->canGoForward());
   actUp_->setEnabled(t->canGoUp());
@@ -714,18 +747,17 @@ void MainWindow::syncUiFromTab() {
     a->setChecked(on);
   };
 
-  setCheckedNoSignal(sortByNameAct_, st.key == BrowserTab::SortKey::Name);
-  setCheckedNoSignal(sortBySizeAct_, st.key == BrowserTab::SortKey::Size);
-  setCheckedNoSignal(sortByTypeAct_, st.key == BrowserTab::SortKey::Type);
+  setCheckedNoSignal(sortByNameAct_,     st.key == BrowserTab::SortKey::Name);
+  setCheckedNoSignal(sortBySizeAct_,     st.key == BrowserTab::SortKey::Size);
+  setCheckedNoSignal(sortByTypeAct_,     st.key == BrowserTab::SortKey::Type);
   setCheckedNoSignal(sortByModifiedAct_, st.key == BrowserTab::SortKey::Modified);
 
-  setCheckedNoSignal(sortAscAct_, st.order == Qt::AscendingOrder);
+  setCheckedNoSignal(sortAscAct_,  st.order == Qt::AscendingOrder);
   setCheckedNoSignal(sortDescAct_, st.order == Qt::DescendingOrder);
 
   setCheckedNoSignal(foldersFirstAct_, st.foldersFirst);
-
-  if (places_) places_->refresh();
 }
+
 
 void MainWindow::onAddressEntered() {
   const QString raw = address_->text().trimmed();
@@ -740,6 +772,7 @@ void MainWindow::onAddressEntered() {
   if (loc.startsWith("trash://")) {
     currentTab()->navigateTo("trash:///", true);
     syncUiFromTab();
+    pathStack_->setCurrentWidget(breadcrumbs_);
     return;
   }
 
@@ -752,6 +785,7 @@ void MainWindow::onAddressEntered() {
 
   currentTab()->navigateTo(QDir(loc).absolutePath(), true);
   syncUiFromTab();
+  pathStack_->setCurrentWidget(breadcrumbs_);
 }
 
 void MainWindow::showPropertiesForPath(const QString &path) {

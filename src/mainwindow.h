@@ -11,6 +11,8 @@ class QFileSystemModel;
 class QProgressDialog;
 class QTabWidget;
 class QLineEdit;
+class QStackedWidget;
+class BreadcrumbBar;
 class QAction;
 
 class PlacesSidebar;
@@ -90,6 +92,8 @@ private:
 
   PlacesSidebar *places_{nullptr};
   QTabWidget *tabs_{nullptr};
+  QStackedWidget *pathStack_{nullptr};
+  BreadcrumbBar *breadcrumbs_{nullptr};
   QLineEdit *address_{nullptr};
 
   QAction *actBack_{nullptr};
