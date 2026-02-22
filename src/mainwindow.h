@@ -28,6 +28,7 @@ class MainWindow final : public QMainWindow {
   Q_OBJECT
 public:
   explicit MainWindow(QWidget *parent = nullptr);
+  explicit MainWindow(const QString &startLoc, QWidget *parent = nullptr);
 
 private:
   enum class ClipMode { None, Copy, Cut };
@@ -78,6 +79,7 @@ private:
   void refresh();
   void openCurrentDirInTerminal();
   void emptyTrashFromSidebar();
+  void openNewWindow();
   void showAboutDialog();
 
 private:
@@ -114,6 +116,7 @@ private:
 
   // File
   QAction* newTabAct_{nullptr};
+  QAction* newWindowAct_{nullptr};
   QAction* closeTabAct_{nullptr};
   QAction* newFolderAct_{nullptr};
   QAction* newDocAct_{nullptr};

@@ -25,6 +25,7 @@
 #include <QInputDialog>
 #include <QSignalBlocker>
 #include <QLabel>
+#include <QProcess>
 #include <QStatusBar>
 #include <QStorageInfo>
 #include <QStringList>
@@ -43,6 +44,13 @@
 
 
 MainWindow::MainWindow(QWidget *parent)
+  : MainWindow(QDir::homePath(), parent)
+{
+
+}
+
+
+MainWindow::MainWindow(const QString &startLoc, QWidget *parent)
   : QMainWindow(parent) {
   setWindowTitle("sfm");
   resize(1250, 760);
@@ -226,7 +234,10 @@ MainWindow::MainWindow(QWidget *parent)
 
   // Tabs shortcuts
   auto *scNewTab = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_T), this);
-  connect(scNewTab, &QShortcut::activated, this, [this]{ newTab(QDir::homePath()); });
+  connect(scNewTab, &QShortcut::activated, this, [this]{
+    const QString loc = currentTab() ? currentTab()->location() : QDir::homePath();
+    newTab(loc);
+  });
 
   auto *scCloseTab = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_W), this);
   connect(scCloseTab, &QShortcut::activated, this, [this]{
@@ -299,7 +310,7 @@ MainWindow::MainWindow(QWidget *parent)
   auto *scTerm = new QShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_T), this);
   connect(scTerm, &QShortcut::activated, this, &MainWindow::openCurrentDirInTerminal);
 
-  newTab(QDir::homePath());
+  newTab(startLoc.isEmpty() ? QDir::homePath() : startLoc);
 
   createActions();
   createMenus();
@@ -308,6 +319,14 @@ MainWindow::MainWindow(QWidget *parent)
 void MainWindow::createActions()
 {
   // File
+  newWindowAct_ = new QAction(tr("Open New Window"), this);
+  newWindowAct_->setIcon(IconUtil::fromTheme(
+    QStringList{"window-new", "window-duplicate"},
+    QStringList{"tab-new"},
+    QStyle::SP_TitleBarNormalButton, this));
+  newWindowAct_->setShortcut(QKeySequence::New);
+  connect(newWindowAct_, &QAction::triggered, this, &MainWindow::openNewWindow);
+
   newTabAct_ = new QAction(tr("New Tab"), this);
   newTabAct_->setIcon(IconUtil::fromTheme(
     QStringList{"tab-new", "document-new"},
@@ -619,6 +638,7 @@ void MainWindow::createMenus()
   helpMenu_  = menuBar()->addMenu(tr("&Help"));
 
   // File
+  fileMenu_->addAction(newWindowAct_);
   fileMenu_->addAction(newTabAct_);
   fileMenu_->addAction(closeTabAct_);
   fileMenu_->addSeparator();
@@ -758,6 +778,18 @@ QString MainWindow::humanBytes(qint64 b) {
 
 BrowserTab* MainWindow::currentTab() const {
   return qobject_cast<BrowserTab*>(tabs_->currentWidget());
+}
+
+void MainWindow::openNewWindow()
+{
+  const QString loc = currentTab() ? currentTab()->location() : QDir::homePath();
+
+  // Launch a new sfm process. We pass the location as a positional argument.
+  const QString exe = QCoreApplication::applicationFilePath();
+  QStringList args;
+  if (!loc.isEmpty()) args << loc;
+
+  QProcess::startDetached(exe, args);
 }
 
 void MainWindow::newTab(const QString &startLoc) {
