@@ -17,7 +17,7 @@
 #include <climits>
 
 static void addSeparator(QHBoxLayout *layout) {
-  auto *sep = new QLabel(">", nullptr);
+  auto *sep = new QLabel(">", layout->parentWidget());
   sep->setContentsMargins(6, 0, 6, 0);
   sep->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Preferred);
   layout->addWidget(sep);
