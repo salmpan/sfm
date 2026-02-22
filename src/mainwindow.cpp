@@ -30,6 +30,8 @@
 #include <QStorageInfo>
 #include <QStringList>
 #include <QStyle>
+#include <QSettings>
+#include <QCloseEvent>
 
 #include "iconutil.h"
 #include "terminal.h"
@@ -44,7 +46,7 @@
 
 
 MainWindow::MainWindow(QWidget *parent)
-  : MainWindow(QDir::homePath(), parent)
+  : MainWindow(QString(), parent)
 {
 
 }
@@ -52,11 +54,19 @@ MainWindow::MainWindow(QWidget *parent)
 
 MainWindow::MainWindow(const QString &startLoc, QWidget *parent)
   : QMainWindow(parent) {
+
   setWindowTitle("sfm");
-  resize(1250, 760);
+
+  // Load settings
+  QSettings s;
+  const bool showHidden = s.value("view/showHidden", false).toBool();
+  const QString lastLoc = s.value("session/lastLocation", QDir::homePath()).toString();
+
 
   fsModel_ = new QFileSystemModel(this);
-  fsModel_->setFilter(QDir::AllEntries | QDir::NoDotAndDotDot | QDir::AllDirs | QDir::Hidden);
+  auto filter = QDir::AllEntries | QDir::NoDotAndDotDot | QDir::AllDirs;
+  if (showHidden) filter |= QDir::Hidden;
+  fsModel_->setFilter(filter);
   fsModel_->setReadOnly(false);
   fsModel_->setRootPath("/");
 
@@ -202,7 +212,8 @@ MainWindow::MainWindow(const QString &startLoc, QWidget *parent)
   });
 
   // Central
-  auto *split = new QSplitter(this);
+  mainSplit_ = new QSplitter(this);
+  auto *split = mainSplit_;
   split->setChildrenCollapsible(false);
 
   places_ = new PlacesSidebar(split);
@@ -310,10 +321,17 @@ MainWindow::MainWindow(const QString &startLoc, QWidget *parent)
   auto *scTerm = new QShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_T), this);
   connect(scTerm, &QShortcut::activated, this, &MainWindow::openCurrentDirInTerminal);
 
-  newTab(startLoc.isEmpty() ? QDir::homePath() : startLoc);
-
   createActions();
   createMenus();
+
+  // Apply persisted GUI/session
+  loadSettings();
+
+  // Pick initial filepath
+  const QString initialLoc = !startLoc.trimmed().isEmpty()
+     ? startLoc.trimmed()
+     : QSettings().value("session/lastLocation", QDir::homePath()).toString();
+  newTab(lastLoc.isEmpty() ? QDir::homePath() : lastLoc);
 }
 
 void MainWindow::createActions()
@@ -506,6 +524,12 @@ void MainWindow::createActions()
     fsModel_->setFilter(f);
   });
 
+  // Sync initial check state from current model filter.
+  if (fsModel_) {
+    const QSignalBlocker b(toggleHiddenAct_);
+    toggleHiddenAct_->setChecked((fsModel_->filter() & QDir::Hidden) != 0);
+  }
+
   // Sorting (per tab, applies to active pane)
   sortKeyGroup_ = new QActionGroup(this);
   sortKeyGroup_->setExclusive(true);
@@ -641,6 +665,10 @@ void MainWindow::createMenus()
   fileMenu_->addAction(newWindowAct_);
   fileMenu_->addAction(newTabAct_);
   fileMenu_->addAction(closeTabAct_);
+  //
+  recentMenu_ = fileMenu_->addMenu(tr("Recent Locations"));
+  rebuildRecentLocationsMenu();
+  //
   fileMenu_->addSeparator();
   fileMenu_->addAction(newFolderAct_);
   fileMenu_->addAction(newDocAct_);
@@ -698,6 +726,116 @@ void MainWindow::createMenus()
 
   // Help
   helpMenu_->addAction(aboutAct_);
+}
+
+void MainWindow::closeEvent(QCloseEvent *e)
+{
+  saveSettings();
+  QMainWindow::closeEvent(e);
+}
+
+void MainWindow::loadSettings()
+{
+  QSettings s;
+
+  // Window geometry
+  const QByteArray geom = s.value("ui/geometry").toByteArray();
+  if (!geom.isEmpty()) {
+      restoreGeometry(geom);
+  } else {
+      resize(1250, 760);  // fallbacj
+  }
+  
+  // Splitter state
+  if (mainSplit_) {
+    const QByteArray sp = s.value("ui/mainSplitter").toByteArray();
+    if (!sp.isEmpty()) mainSplit_->restoreState(sp);
+  }
+
+  // Recent locations
+  recentLocations_ = s.value("session/recentLocations").toStringList();
+  rebuildRecentLocationsMenu();
+}
+
+void MainWindow::saveSettings() const
+{
+  QSettings s;
+  s.setValue("ui/geometry", saveGeometry());
+  if (mainSplit_) s.setValue("ui/mainSplitter", mainSplit_->saveState());
+
+  // Persist show-hidden from model filter (source of truth)
+  if (fsModel_) {
+    const bool showHidden = (fsModel_->filter() & QDir::Hidden) != 0;
+    s.setValue("view/showHidden", showHidden);
+  }
+
+  // Persist last location (current tab wins)
+  if (auto *t = const_cast<MainWindow*>(this)->currentTab()) {
+    s.setValue("session/lastLocation", t->location());
+  }
+
+  s.setValue("session/recentLocations", recentLocations_);
+}
+
+QString MainWindow::prettifyLocation(const QString &loc)
+{
+  if (loc.startsWith("trash://")) return QStringLiteral("trash:///");
+  const QString home = QDir::homePath();
+  if (loc == home) return QStringLiteral("~");
+  if (loc.startsWith(home + "/")) return "~" + loc.mid(home.size());
+  return loc;
+}
+
+void MainWindow::addRecentLocation(const QString &loc)
+{
+  const QString trimmed = loc.trimmed();
+  if (trimmed.isEmpty()) return;
+
+  // Normalize trash location
+  const QString norm = trimmed.startsWith("trash://") ? QStringLiteral("trash:///") : trimmed;
+
+  // Move-to-front behavior
+  recentLocations_.removeAll(norm);
+  recentLocations_.prepend(norm);
+
+  // Cap list
+  const int kMax = 10;
+  while (recentLocations_.size() > kMax) recentLocations_.removeLast();
+
+  rebuildRecentLocationsMenu();
+}
+
+void MainWindow::rebuildRecentLocationsMenu()
+{
+  if (!recentMenu_) return;
+  recentMenu_->clear();
+
+  if (recentLocations_.isEmpty()) {
+    QAction *empty = recentMenu_->addAction(tr("(No recent locations)"));
+    empty->setEnabled(false);
+    return;
+  }
+
+  // Create one action per location
+  for (const QString &loc : recentLocations_) {
+    const QString label = prettifyLocation(loc);
+    QAction *a = recentMenu_->addAction(label);
+    a->setToolTip(loc);
+    connect(a, &QAction::triggered, this, [this, loc]{
+      if (!currentTab()) return;
+      currentTab()->navigateTo(loc, true);
+      syncUiFromTab();
+      addRecentLocation(loc); // bump to top
+    });
+  }
+
+  recentMenu_->addSeparator();
+  QAction *clear = recentMenu_->addAction(tr("Clear Recent Locations"));
+  connect(clear, &QAction::triggered, this, [this]{
+    recentLocations_.clear();
+    rebuildRecentLocationsMenu();
+    QSettings().setValue("session/recentLocations", recentLocations_);
+  });
 }
 
 void MainWindow::initInlineStatusBar() {
@@ -797,9 +935,15 @@ void MainWindow::newTab(const QString &startLoc) {
   const int idx = tabs_->addTab(tab, "Tab");
   tabs_->setCurrentIndex(idx);
 
-  connect(tab, &BrowserTab::locationChanged, this, [this](const QString &){
-    if (sender() == currentTab()) syncUiFromTab();
+  connect(tab, &BrowserTab::locationChanged, this, [this](const QString &loc){
+    if (sender() == currentTab()) {
+      syncUiFromTab();
+      addRecentLocation(loc);
+      // Keep "last location" up to date
+      QSettings().setValue("session/lastLocation", loc);
+    }
   });
+
   connect(tab, &BrowserTab::titleChanged, this, [this, tab](const QString &title){
     const int i = tabs_->indexOf(tab);
     if (i >= 0) tabs_->setTabText(i, title);

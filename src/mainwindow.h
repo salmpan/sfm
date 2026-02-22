@@ -7,11 +7,13 @@
 
 class QLabel;
 
+class QCloseEvent;
 class QFileSystemModel;
 class QProgressDialog;
 class QTabWidget;
 class QLineEdit;
 class QStackedWidget;
+class QSplitter;
 class BreadcrumbBar;
 class QAction;
 
@@ -29,6 +31,9 @@ class MainWindow final : public QMainWindow {
 public:
   explicit MainWindow(QWidget *parent = nullptr);
   explicit MainWindow(const QString &startLoc, QWidget *parent = nullptr);
+
+protected:
+  void closeEvent(QCloseEvent *e) override;
 
 private:
   enum class ClipMode { None, Copy, Cut };
@@ -76,6 +81,13 @@ private:
   void deleteSelectedInTrashView();
   void restoreSelectedInTrashView();
 
+  // Settings - session
+  void loadSettings();
+  void saveSettings() const;
+  void addRecentLocation(const QString &loc);
+  void rebuildRecentLocationsMenu();
+  static QString prettifyLocation(const QString &loc);
+
   void refresh();
   void openCurrentDirInTerminal();
   void emptyTrashFromSidebar();
@@ -96,6 +108,7 @@ private:
   PlacesSidebar *places_{nullptr};
   QTabWidget *tabs_{nullptr};
   QStackedWidget *pathStack_{nullptr};
+  QSplitter *mainSplit_{nullptr};
   BreadcrumbBar *breadcrumbs_{nullptr};
   QLineEdit *address_{nullptr};
 
@@ -108,6 +121,8 @@ private:
 
   // Menus
   QMenu* fileMenu_{nullptr};
+  QMenu* recentMenu_{nullptr};
+  QStringList recentLocations_;
   QMenu* editMenu_{nullptr};
   QMenu* viewMenu_{nullptr};
   QMenu* goMenu_{nullptr};
