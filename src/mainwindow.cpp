@@ -1,3 +1,4 @@
+#include <QApplication>
 #include <QMainWindow>
 #include <QToolBar>
 #include <QLineEdit>
@@ -38,6 +39,8 @@
 #include "openwithdialog.h"
 #include "breadcrumbbar.h"
 #include "mainwindow.h"
+#include "aboutdialog.h"
+
 
 MainWindow::MainWindow(QWidget *parent)
   : QMainWindow(parent) {
@@ -598,6 +601,11 @@ void MainWindow::createActions()
     QStringList{"trash"},
     QStyle::SP_TrashIcon, this));
   connect(emptyTrashAct_, &QAction::triggered, this, &MainWindow::emptyTrashFromSidebar);
+
+
+  // Help
+  aboutAct_ = new QAction(tr("About…"), this);
+  connect(aboutAct_, &QAction::triggered, this, &MainWindow::showAboutDialog);
 }
 
 
@@ -667,6 +675,9 @@ void MainWindow::createMenus()
   toolsMenu_->addAction(openTerminalAct_);
   toolsMenu_->addSeparator();
   toolsMenu_->addAction(emptyTrashAct_);
+
+  // Help
+  helpMenu_->addAction(aboutAct_);
 }
 
 void MainWindow::initInlineStatusBar() {
@@ -1106,4 +1117,10 @@ void MainWindow::emptyTrashFromSidebar() {
   }
 
   refresh();
+}
+
+void MainWindow::showAboutDialog()
+{
+  AboutDialog dlg(this);
+  dlg.exec();
 }

@@ -1,6 +1,20 @@
 cmake_minimum_required(VERSION 3.16)
 project(sfm LANGUAGES CXX)
 
+find_package(Git QUIET)
+if(GIT_FOUND)
+  execute_process(
+    COMMAND ${GIT_EXECUTABLE} rev-parse --short HEAD
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    OUTPUT_VARIABLE GIT_COMMIT_HASH
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+  )
+else()
+  set(GIT_COMMIT_HASH "unknown")
+endif()
+
+add_compile_definitions(SFM_GIT_COMMIT="${GIT_COMMIT_HASH}")
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -14,6 +28,9 @@ add_executable(sfm
   src/main.cpp
   src/mainwindow.h
   src/mainwindow.cpp
+
+  src/aboutdialog.h
+  src/aboutdialog.cpp
 
   src/terminal.h
   src/terminal.cpp

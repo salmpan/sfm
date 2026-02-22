@@ -78,6 +78,7 @@ private:
   void refresh();
   void openCurrentDirInTerminal();
   void emptyTrashFromSidebar();
+  void showAboutDialog();
 
 private:
   void createActions();
@@ -103,7 +104,7 @@ private:
 
   Clip clipboard_;
 
-// Menus
+  // Menus
   QMenu* fileMenu_{nullptr};
   QMenu* editMenu_{nullptr};
   QMenu* viewMenu_{nullptr};
@@ -158,6 +159,9 @@ private:
   // Tools
   QAction* openTerminalAct_{nullptr};
   QAction* emptyTrashAct_{nullptr};
+  
+  // Help
+  QAction* aboutAct_{nullptr};
 
   // Inline status bar widgets
   QLabel* statusItemCount_{nullptr};
