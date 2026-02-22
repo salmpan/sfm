@@ -106,6 +106,12 @@ signals:
   void openWithDialogRequested(const QString &filePath);
   void openWithAppRequested(const QString &desktopId, const QString &filePath);
 
+  // Clipboard actions
+  void cutRequested();
+  void copyRequested();
+  void pasteRequested();
+  void trashRequested();
+
 private slots:
   void onActivated(const QModelIndex &idx);
   void onContextMenu(const QPoint &pos);

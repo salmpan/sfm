@@ -18,6 +18,8 @@
 #include <QMenu>
 #include <QMouseEvent>
 #include <QKeyEvent>
+#include <QGuiApplication>
+#include <QClipboard>
 #include <QScrollBar>
 
 #include <utility>
@@ -618,6 +620,43 @@ void BrowserTab::onContextMenu(const QPoint &pos) {
     aOpenWithDialog = openWithMenu->addAction("Other Application…");
   }
 
+
+  menu.addSeparator();
+
+  // Clipboard actions
+  QStringList selPaths = selectedPaths();
+  if (selPaths.isEmpty() && hasIndex) {
+    selPaths << clickedPath;
+  } else if (hasIndex && !selPaths.contains(clickedPath)) {
+    // Right-clicked item outside the current selection → act on the clicked item.
+    selPaths = {clickedPath};
+  }
+  const bool hasSelection = !selPaths.isEmpty();
+
+  QAction *aCut = menu.addAction("Cut");
+  aCut->setShortcut(QKeySequence::Cut);
+  aCut->setEnabled(hasSelection);
+
+  QAction *aCopy = menu.addAction("Copy");
+  aCopy->setShortcut(QKeySequence::Copy);
+  aCopy->setEnabled(hasSelection);
+
+  QAction *aPaste = menu.addAction("Paste");
+  aPaste->setShortcut(QKeySequence::Paste);
+  aPaste->setEnabled(!QGuiApplication::clipboard()->text().trimmed().isEmpty());
+
+  menu.addSeparator();
+
+  QAction *aCopyPath = menu.addAction("Copy Path");
+  aCopyPath->setEnabled(hasSelection);
+
+  QAction *aCopyAbsPath = menu.addAction("Copy Absolute Path");
+  aCopyAbsPath->setEnabled(hasSelection);
+
+  QAction *aTrash = menu.addAction("Move to Trash");
+  aTrash->setShortcut(QKeySequence::Delete);
+  aTrash->setEnabled(hasSelection);
+
   menu.addSeparator();
   QAction *aNewFolder = menu.addAction("New Folder…");
   QAction *aNewDoc = menu.addAction("New Document…");
@@ -641,6 +680,37 @@ void BrowserTab::onContextMenu(const QPoint &pos) {
     openInNewTabIfDir(clickedPath);
     return;
   }
+
+  if (chosen == aCut) {
+    emit cutRequested();
+    return;
+  }
+  if (chosen == aCopy) {
+    emit copyRequested();
+    return;
+  }
+  if (chosen == aPaste) {
+    emit pasteRequested();
+    return;
+  }
+  if (chosen == aCopyPath) {
+    QDir base(location_);
+    QStringList rel;
+    rel.reserve(selPaths.size());
+    for (const QString &p : selPaths) rel << base.relativeFilePath(p);
+    QGuiApplication::clipboard()->setText(rel.join('\n'));
+    return;
+  }
+  if (chosen == aCopyAbsPath) {
+    QGuiApplication::clipboard()->setText(selPaths.join('\n'));
+    return;
+  }
+
+  if (chosen == aTrash) {
+    emit trashRequested();
+    return;
+  }
+
   if (chosen == aNewFolder) {
     emit createNewFolderRequested();
     return;

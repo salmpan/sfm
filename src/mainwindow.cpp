@@ -792,13 +792,18 @@ void MainWindow::newTab(const QString &startLoc) {
       QMessageBox::warning(this, "Open With", err);
     }
   });
-connect(tab, &BrowserTab::createNewFolderRequested, this, [this]{
-  createNewFolder();
-});
-connect(tab, &BrowserTab::createNewDocumentRequested, this, [this]{
-  createEmptyDocument();
-});
+  connect(tab, &BrowserTab::createNewFolderRequested, this, [this]{
+    createNewFolder();
+  });
+  connect(tab, &BrowserTab::createNewDocumentRequested, this, [this]{
+    createEmptyDocument();
+  });
 
+
+  connect(tab, &BrowserTab::cutRequested, this, [this]{ cutSelected(); });
+  connect(tab, &BrowserTab::copyRequested, this, [this]{ copySelected(); });
+  connect(tab, &BrowserTab::pasteRequested, this, [this]{ pasteIntoCurrentDir(); });
+  connect(tab, &BrowserTab::trashRequested, this, [this]{ trashSelected(); });
 
   tab->navigateTo(startLoc, true);
   syncUiFromTab();
