@@ -53,6 +53,9 @@ add_executable(sfm
 
   src/breadcrumbbar.h
   src/breadcrumbbar.cpp
+
+  src/iconutil.h
+  src/iconutil.cpp
 )
 
 target_link_libraries(sfm PRIVATE Qt6::Widgets Qt6::DBus Qt6::Concurrent)

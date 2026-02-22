@@ -26,7 +26,10 @@
 #include <QLabel>
 #include <QStatusBar>
 #include <QStorageInfo>
+#include <QStringList>
+#include <QStyle>
 
+#include "iconutil.h"
 #include "terminal.h"
 #include "places.h"
 #include "browsertab.h"
@@ -121,18 +124,26 @@ MainWindow::MainWindow(QWidget *parent)
   tb->setMovable(false);
 
   actBack_ = tb->addAction("Back");
+  actBack_->setIcon(IconUtil::fromTheme(QStringList{"go-previous", "back"}, {},
+    QStyle::SP_ArrowBack, this));
   actBack_->setShortcut(QKeySequence::Back);
   connect(actBack_, &QAction::triggered, this, [this]{ currentTab()->goBack(); syncUiFromTab(); });
 
   actForward_ = tb->addAction("Forward");
+  actForward_->setIcon(IconUtil::fromTheme(QStringList{"go-next","forward"}, {},
+    QStyle::SP_ArrowForward, this));
   actForward_->setShortcut(QKeySequence::Forward);
   connect(actForward_, &QAction::triggered, this, [this]{ currentTab()->goForward(); syncUiFromTab(); });
 
   actUp_ = tb->addAction("Up");
+  actUp_->setIcon(IconUtil::fromTheme(QStringList{"go-up","up"}, {},
+    QStyle::SP_ArrowUp, this));
   actUp_->setShortcut(QKeySequence(Qt::ALT | Qt::Key_Up));
   connect(actUp_, &QAction::triggered, this, [this]{ currentTab()->goUp(); syncUiFromTab(); });
 
   actRefresh_ = tb->addAction("Refresh");
+  actRefresh_->setIcon(IconUtil::fromTheme(QStringList{"view-refresh","reload"}, {},
+    QStyle::SP_BrowserReload, this));
   actRefresh_->setShortcut(QKeySequence::Refresh);
   connect(actRefresh_, &QAction::triggered, this, &MainWindow::refresh);
 
@@ -295,6 +306,10 @@ void MainWindow::createActions()
 {
   // File
   newTabAct_ = new QAction(tr("New Tab"), this);
+  newTabAct_->setIcon(IconUtil::fromTheme(
+    QStringList{"tab-new", "document-new"},
+    QStringList{"list-add", "add"},
+    QStyle::SP_FileIcon, this));
   newTabAct_->setShortcut(QKeySequence::AddTab);
   connect(newTabAct_, &QAction::triggered, this, [this]{
     const QString loc = currentTab() ? currentTab()->location() : QDir::homePath();
@@ -302,6 +317,10 @@ void MainWindow::createActions()
   });
 
   closeTabAct_ = new QAction(tr("Close Tab"), this);
+  closeTabAct_->setIcon(IconUtil::fromTheme(
+    QStringList{"tab-close","window-close"},
+    QStringList{"process-stop","close"},
+    QStyle::SP_DialogCloseButton, this));
   closeTabAct_->setShortcut(QKeySequence::Close);
   connect(closeTabAct_, &QAction::triggered, this, [this]{
     const int i = tabs_ ? tabs_->currentIndex() : -1;
@@ -309,47 +328,91 @@ void MainWindow::createActions()
   });
 
   newFolderAct_ = new QAction(tr("New Folder…"), this);
+  newFolderAct_->setIcon(IconUtil::fromTheme(
+    QStringList{"folder-new","document-new"},
+    QStringList{"list-add"},
+    QStyle::SP_DirIcon, this));
   newFolderAct_->setShortcut(QKeySequence("Ctrl+Shift+N"));
   connect(newFolderAct_, &QAction::triggered, this, &MainWindow::createNewFolder);
 
   newDocAct_ = new QAction(tr("New Document…"), this);
+  newDocAct_->setIcon(IconUtil::fromTheme(
+    QStringList{"document-new", "text-x-generic"},
+    QStringList{"list-add"},
+    QStyle::SP_FileIcon, this));
   newDocAct_->setShortcut(QKeySequence::New);
   connect(newDocAct_, &QAction::triggered, this, &MainWindow::createEmptyDocument);
 
   quitAct_ = new QAction(tr("Quit"), this);
+  quitAct_->setIcon(IconUtil::fromTheme(
+    QStringList{"application-exit", "system-log-out"},
+    QStringList{"window-close"},
+    QStyle::SP_DialogCloseButton, this));
   quitAct_->setShortcut(QKeySequence::Quit);
   connect(quitAct_, &QAction::triggered, this, &QWidget::close);
 
   // Edit
-  copyAct_ = new QAction(tr("Copy"), this);
-  copyAct_->setShortcut(QKeySequence::Copy);
-  connect(copyAct_, &QAction::triggered, this, &MainWindow::copySelected);
-
   cutAct_ = new QAction(tr("Cut"), this);
+  cutAct_->setIcon(IconUtil::fromTheme(
+    QStringList{"edit-cut"},
+    QStringList{"cut"},
+    QStyle::SP_DialogOpenButton, this));
   cutAct_->setShortcut(QKeySequence::Cut);
   connect(cutAct_, &QAction::triggered, this, &MainWindow::cutSelected);
 
+  copyAct_ = new QAction(tr("Copy"), this);
+  copyAct_->setIcon(IconUtil::fromTheme(
+    QStringList{"edit-copy"},
+    QStringList{"copy"},
+    QStyle::SP_DialogOpenButton, this));
+  copyAct_->setShortcut(QKeySequence::Copy);
+  connect(copyAct_, &QAction::triggered, this, &MainWindow::copySelected);
+
   pasteAct_ = new QAction(tr("Paste"), this);
+  pasteAct_->setIcon(IconUtil::fromTheme(
+    QStringList{"edit-paste"},
+    QStringList{"paste"},
+    QStyle::SP_DialogOpenButton, this));
   pasteAct_->setShortcut(QKeySequence::Paste);
   connect(pasteAct_, &QAction::triggered, this, &MainWindow::pasteIntoCurrentDir);
 
   renameAct_ = new QAction(tr("Rename"), this);
+  renameAct_->setIcon(IconUtil::fromTheme(
+    QStringList{"edit-rename","document-edit"},
+    QStringList{"edit"},
+    QStyle::SP_FileIcon, this));
   renameAct_->setShortcut(Qt::Key_F2);
   connect(renameAct_, &QAction::triggered, this, &MainWindow::renameSelected);
 
   trashAct_ = new QAction(tr("Move to Trash"), this);
+  trashAct_->setIcon(IconUtil::fromTheme(
+    QStringList{"user-trash","edit-delete"},
+    QStringList{"trash"},
+    QStyle::SP_TrashIcon, this));
   trashAct_->setShortcut(QKeySequence::Delete);
   connect(trashAct_, &QAction::triggered, this, &MainWindow::trashSelected);
 
   deleteAct_ = new QAction(tr("Delete Permanently"), this);
+  deleteAct_->setIcon(IconUtil::fromTheme(
+    QStringList{"edit-delete", "user-trash"},
+    QStringList{"trash"},
+    QStyle::SP_TrashIcon, this));
   deleteAct_->setShortcut(QKeySequence(Qt::SHIFT | Qt::Key_Delete));
   connect(deleteAct_, &QAction::triggered, this, &MainWindow::deleteSelectedPermanently);
 
   propertiesAct_ = new QAction(tr("Properties…"), this);
+  propertiesAct_->setIcon(IconUtil::fromTheme(
+    QStringList{"document-properties", "dialog-information"},
+    QStringList{"help-about"},
+    QStyle::SP_FileDialogInfoView, this));
   propertiesAct_->setShortcut(QKeySequence(Qt::ALT | Qt::Key_Return));
   connect(propertiesAct_, &QAction::triggered, this, &MainWindow::showPropertiesForSelection);
 
   openWithAct_ = new QAction(tr("Open With…"), this);
+  openWithAct_->setIcon(IconUtil::fromTheme(
+    QStringList{"open-menu-symbolic", "system-run"},
+    QStringList{"application-x-executable"},
+    QStyle::SP_ArrowRight, this));
   connect(openWithAct_, &QAction::triggered, this, [this]{
     if (!currentTab()) return;
     const QStringList sel = currentTab()->selectedPaths();
@@ -364,6 +427,10 @@ void MainWindow::createActions()
 
   viewGridAct_ = new QAction(tr("Icon View"), this);
   viewGridAct_->setCheckable(true);
+  viewGridAct_->setIcon(IconUtil::fromTheme(
+    QStringList{"view-grid","view-grid-symbolic"},
+    QStringList{"view-list-icons"},
+    QStyle::SP_FileDialogDetailedView, this));
   viewGridAct_->setShortcut(QKeySequence("Ctrl+1"));
   viewModeGroup_->addAction(viewGridAct_);
   connect(viewGridAct_, &QAction::triggered, this, [this]{
@@ -372,6 +439,10 @@ void MainWindow::createActions()
 
   viewListAct_ = new QAction(tr("List View"), this);
   viewListAct_->setCheckable(true);
+  viewListAct_->setIcon(IconUtil::fromTheme(
+    QStringList{"view-list-details","view-list"},
+    QStringList{"format-justify-left"},
+    QStyle::SP_FileDialogListView, this));
   viewListAct_->setShortcut(QKeySequence("Ctrl+2"));
   viewModeGroup_->addAction(viewListAct_);
   connect(viewListAct_, &QAction::triggered, this, [this]{
@@ -380,6 +451,10 @@ void MainWindow::createActions()
 
   viewCompactAct_ = new QAction(tr("Compact View"), this);
   viewCompactAct_->setCheckable(true);
+  viewCompactAct_->setIcon(IconUtil::fromTheme(
+    QStringList{"view-list-text","view-list"},
+    QStringList{"format-justify-left"},
+    QStyle::SP_FileDialogListView, this));
   viewCompactAct_->setShortcut(QKeySequence("Ctrl+3"));
   viewModeGroup_->addAction(viewCompactAct_);
   connect(viewCompactAct_, &QAction::triggered, this, [this]{
@@ -450,6 +525,10 @@ void MainWindow::createActions()
 
   sortAscAct_ = new QAction(tr("Ascending"), this);
   sortAscAct_->setCheckable(true);
+    sortAscAct_->setIcon(IconUtil::fromTheme(
+    QStringList{"view-sort-ascending", "sort-ascending"},
+    QStringList{"go-up"},
+    QStyle::SP_ArrowUp, this));
   sortOrderGroup_->addAction(sortAscAct_);
   connect(sortAscAct_, &QAction::triggered, this, [this]{
     if (auto *t = currentTab()) t->setSort(t->sortState().key, Qt::AscendingOrder);
@@ -458,6 +537,10 @@ void MainWindow::createActions()
 
   sortDescAct_ = new QAction(tr("Descending"), this);
   sortDescAct_->setCheckable(true);
+    sortDescAct_->setIcon(IconUtil::fromTheme(
+    QStringList{"view-sort-descending", "sort-descending"},
+    QStringList{"go-down"},
+    QStyle::SP_ArrowDown, this));
   sortOrderGroup_->addAction(sortDescAct_);
   connect(sortDescAct_, &QAction::triggered, this, [this]{
     if (auto *t = currentTab()) t->setSort(t->sortState().key, Qt::DescendingOrder);
@@ -466,6 +549,10 @@ void MainWindow::createActions()
 
   foldersFirstAct_ = new QAction(tr("Folders First"), this);
   foldersFirstAct_->setCheckable(true);
+  foldersFirstAct_->setIcon(IconUtil::fromTheme(
+    QStringList{"folder", "folder-symbolic"},
+    QStringList{"inode-directory"},
+    QStyle::SP_DirIcon, this));
   connect(foldersFirstAct_, &QAction::toggled, this, [this](bool on){
     if (auto *t = currentTab()) t->setFoldersFirst(on);
     syncUiFromTab();
@@ -478,6 +565,9 @@ void MainWindow::createActions()
   refreshAct_ = actRefresh_;
 
   homeAct_ = new QAction(tr("Home"), this);
+  homeAct_->setIcon(IconUtil::fromTheme(
+    QStringList{"go-home", "user-home"}, {},
+    QStyle::SP_DirHomeIcon, this));
   homeAct_->setShortcut(QKeySequence("Alt+Home"));
   connect(homeAct_, &QAction::triggered, this, [this]{
     if (auto t = currentTab()) t->navigateTo(QDir::homePath(), true);
@@ -485,6 +575,9 @@ void MainWindow::createActions()
   });
 
   trashLocationAct_ = new QAction(tr("Trash"), this);
+  trashLocationAct_->setIcon(IconUtil::fromTheme(
+    QStringList{"user-trash", "trash"}, {},
+    QStyle::SP_TrashIcon, this));
   connect(trashLocationAct_, &QAction::triggered, this, [this]{
     if (auto t = currentTab()) t->navigateTo("trash:///", true);
     syncUiFromTab();
@@ -493,9 +586,17 @@ void MainWindow::createActions()
   // Tools
   openTerminalAct_ = new QAction(tr("Open Terminal Here"), this);
   openTerminalAct_->setShortcut(QKeySequence("Ctrl+Alt+T"));
+  openTerminalAct_->setIcon(IconUtil::fromTheme(
+    QStringList{"utilities-terminal", "terminal"},
+    QStringList{"system-run"},
+    QStyle::SP_ComputerIcon, this));
   connect(openTerminalAct_, &QAction::triggered, this, &MainWindow::openCurrentDirInTerminal);
 
   emptyTrashAct_ = new QAction(tr("Empty Trash"), this);
+    emptyTrashAct_->setIcon(IconUtil::fromTheme(
+    QStringList{"user-trash", "edit-clear","edit-delete"},
+    QStringList{"trash"},
+    QStyle::SP_TrashIcon, this));
   connect(emptyTrashAct_, &QAction::triggered, this, &MainWindow::emptyTrashFromSidebar);
 }
 
