@@ -12,6 +12,7 @@ class QFileSystemModel;
 class QProgressDialog;
 class QTabWidget;
 class QLineEdit;
+class QDockWidget;
 class QStackedWidget;
 class QSplitter;
 class BreadcrumbBar;
@@ -24,6 +25,8 @@ class BrowserTab;
 class QMenu;
 class QAction;
 class QActionGroup;
+struct SearchOptions;
+class SearchResultsTab;
 
 
 class MainWindow final : public QMainWindow {
@@ -93,6 +96,8 @@ private:
   void emptyTrashFromSidebar();
   void openNewWindow();
   void showAboutDialog();
+  void openFindDialog();
+  void startSearch(const SearchOptions &opt);
 
 private:
   void createActions();
@@ -176,6 +181,11 @@ private:
 
   // Tools
   QAction* openTerminalAct_{nullptr};
+  QAction* findAct_{nullptr};
+  QAction* toggleSearchDockAct_{nullptr};
+
+  QDockWidget* searchDock_{nullptr};
+  SearchResultsTab* searchTab_{nullptr};
   QAction* emptyTrashAct_{nullptr};
   
   // Help

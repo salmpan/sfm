@@ -68,6 +68,9 @@ public:
   bool canGoUp() const { return !inTrash() && location_ != "/"; }
 
   QStringList selectedPaths() const;
+  // Selects an entry by absolute path (filesystem pane only). If the directory is not
+  // currently shown, the call is ignored.
+  void selectPath(const QString &absolutePath);
   void beginInlineRename();
 
   QStringList selectedTrashedPaths() const;

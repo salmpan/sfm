@@ -73,6 +73,12 @@ add_executable(sfm
 
   src/iconutil.h
   src/iconutil.cpp
+
+  src/searchtypes.h
+  src/searchresultsmodel.h
+  src/searchresultsmodel.cpp
+  src/searchresultstab.h
+  src/searchresultstab.cpp
 )
 
 target_link_libraries(sfm PRIVATE Qt6::Widgets Qt6::DBus Qt6::Concurrent)

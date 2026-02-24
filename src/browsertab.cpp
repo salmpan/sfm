@@ -519,6 +519,42 @@ QStringList BrowserTab::selectedPaths() const {
   return out;
 }
 
+void BrowserTab::selectPath(const QString &absolutePath) {
+  if (inTrash()) return;
+  if (!absolutePath.startsWith(location_)) return;
+  if (!fsModel_ || !fsProxy_) return;
+
+  auto trySelect = [this, absolutePath]() -> bool {
+    const QModelIndex srcIdx = fsModel_->index(absolutePath);
+    if (!srcIdx.isValid()) return false;
+    const QModelIndex proxyIdx = fsProxy_->mapFromSource(srcIdx);
+    if (!proxyIdx.isValid()) return false;
+
+    QAbstractItemView *v = currentFileView();
+    if (!v) return false;
+    v->selectionModel()->select(proxyIdx, QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
+    v->setCurrentIndex(proxyIdx);
+    v->scrollTo(proxyIdx);
+    return true;
+  };
+
+  if (trySelect()) return;
+
+  // QFileSystemModel populates asynchronously; retry a few times.
+  int *attempts = new int(0);
+  QTimer *t = new QTimer(this);
+  t->setInterval(80);
+  connect(t, &QTimer::timeout, this, [this, t, attempts, trySelect]{
+    (*attempts)++;
+    if (trySelect() || *attempts >= 25) {
+      t->stop();
+      t->deleteLater();
+      delete attempts;
+    }
+  });
+  t->start();
+}
+
 QStringList BrowserTab::selectedTrashedPaths() const {
   if (!inTrash() || !trashView_) return {};
   return trashView_->selectedTrashedPaths();

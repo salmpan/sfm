@@ -3,6 +3,7 @@
 #include <QToolBar>
 #include <QLineEdit>
 #include <QTabWidget>
+#include <QDockWidget>
 #include <QStackedWidget>
 #include <QToolButton>
 #include <QSplitter>
@@ -32,6 +33,8 @@
 #include <QStyle>
 #include <QSettings>
 #include <QCloseEvent>
+#include <QDesktopServices>
+#include <QUrl>
 
 #include "iconutil.h"
 #include "terminal.h"
@@ -43,6 +46,8 @@
 #include "breadcrumbbar.h"
 #include "mainwindow.h"
 #include "aboutdialog.h"
+
+#include "searchresultstab.h"
 
 
 MainWindow::MainWindow(QWidget *parent)
@@ -233,7 +238,14 @@ MainWindow::MainWindow(const QString &startLoc, QWidget *parent)
 
   initInlineStatusBar();
 
-  connect(tabs_, &QTabWidget::currentChanged, this, [this](int){ syncUiFromTab(); });
+  connect(tabs_, &QTabWidget::currentChanged, this, [this](int){
+    syncUiFromTab();
+    if (searchTab_) {
+      auto *t = currentTab();
+      const QString loc = (t && !t->inTrash()) ? t->location() : QString();
+      searchTab_->setCurrentFolderSuggestion(loc);
+    }
+  });
   connect(tabs_, &QTabWidget::tabCloseRequested, this, &MainWindow::closeTab);
 
   connect(places_, &PlacesSidebar::placeActivated, this, [this](const QString &path){
@@ -638,6 +650,14 @@ void MainWindow::createActions()
     QStyle::SP_ComputerIcon, this));
   connect(openTerminalAct_, &QAction::triggered, this, &MainWindow::openCurrentDirInTerminal);
 
+  findAct_ = new QAction(tr("Find…"), this);
+  findAct_->setShortcut(QKeySequence("Ctrl+Shift+F"));
+  findAct_->setIcon(IconUtil::fromTheme(
+    QStringList{"edit-find", "system-search"},
+    QStringList{"search"},
+    QStyle::SP_FileDialogContentsView, this));
+  connect(findAct_, &QAction::triggered, this, &MainWindow::openFindDialog);
+
   emptyTrashAct_ = new QAction(tr("Empty Trash"), this);
     emptyTrashAct_->setIcon(IconUtil::fromTheme(
     QStringList{"user-trash", "edit-clear","edit-delete"},
@@ -721,6 +741,19 @@ void MainWindow::createMenus()
 
   // Tools
   toolsMenu_->addAction(openTerminalAct_);
+  toolsMenu_->addAction(findAct_);
+  // Search dock (hidden by default)
+  searchDock_ = new QDockWidget(tr("Search"), this);
+  searchDock_->setObjectName("searchDock");
+  searchDock_->setAllowedAreas(Qt::BottomDockWidgetArea | Qt::TopDockWidgetArea);
+  addDockWidget(Qt::BottomDockWidgetArea, searchDock_);
+  searchDock_->hide();
+
+  toggleSearchDockAct_ = searchDock_->toggleViewAction();
+  toggleSearchDockAct_->setText(tr("Search"));
+  viewMenu_->addSeparator();
+  viewMenu_->addAction(toggleSearchDockAct_);
+
   toolsMenu_->addSeparator();
   toolsMenu_->addAction(emptyTrashAct_);
 
@@ -941,6 +974,11 @@ void MainWindow::newTab(const QString &startLoc) {
       addRecentLocation(loc);
       // Keep "last location" up to date
       QSettings().setValue("session/lastLocation", loc);
+
+      if (searchTab_) {
+        const QString s = (currentTab() && !currentTab()->inTrash()) ? currentTab()->location() : QString();
+        searchTab_->setCurrentFolderSuggestion(s);
+      }
     }
   });
 
@@ -1299,4 +1337,72 @@ void MainWindow::showAboutDialog()
 {
   AboutDialog dlg(this);
   dlg.exec();
+}
+
+void MainWindow::openFindDialog()
+{
+  auto *t = currentTab();
+  if (!t) return;
+  const QString root = t->inTrash() ? QString() : t->location();
+  if (root.isEmpty() || root.startsWith("trash://")) {
+    QMessageBox::information(this, tr("Find"), tr("Search is only available for filesystem folders (not Trash)."));
+    return;
+  }
+
+  // Create the dock content on first use. Options are persisted inside SearchResultsTab.
+  if (!searchTab_) {
+    SearchOptions opt;
+    opt.rootPath = root;
+    startSearch(opt);
+  }
+
+  if (searchDock_) {
+    searchDock_->show();
+    searchDock_->raise();
+  }
+
+  if (searchTab_) {
+    searchTab_->setCurrentFolderSuggestion(root);
+    searchTab_->setRootPath(root);
+    searchTab_->focusQuery();
+  }
+}
+
+void MainWindow::startSearch(const SearchOptions &opt)
+{
+  if (!searchDock_) return;
+
+  if (searchTab_) return;
+
+  searchTab_ = new SearchResultsTab(opt, searchDock_);
+  searchDock_->setWidget(searchTab_);
+
+  connect(searchTab_, &SearchResultsTab::openPathRequested, this, [this](const QString &path){
+    QFileInfo fi(path);
+    if (fi.isDir()) {
+      newTab(fi.absoluteFilePath());
+    } else {
+      QDesktopServices::openUrl(QUrl::fromLocalFile(fi.absoluteFilePath()));
+    }
+  });
+
+  connect(searchTab_, &SearchResultsTab::openContainingFolderRequested, this, [this](const QString &path){
+    QFileInfo fi(path);
+    const QString folder = fi.isDir() ? fi.absoluteFilePath() : fi.absolutePath();
+    const QString target = fi.isDir() ? QString() : fi.absoluteFilePath();
+    newTab(folder);
+    if (!target.isEmpty() && currentTab()) {
+      currentTab()->selectPath(target);
+    }
+  });
+
+  connect(searchTab_, &SearchResultsTab::requestCloseMe, this, [this]{
+    if (searchDock_) searchDock_->hide();
+  });
+
+  // Seed the current-folder suggestion.
+  if (auto *t = currentTab()) {
+    const QString loc = t->inTrash() ? QString() : t->location();
+    searchTab_->setCurrentFolderSuggestion(loc);
+  }
 }
