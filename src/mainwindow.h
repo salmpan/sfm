@@ -157,6 +157,9 @@ private:
   QAction* viewGridAct_{nullptr};
   QAction* viewListAct_{nullptr};
   QAction* viewCompactAct_{nullptr};
+  QAction* zoomInAct_{nullptr};
+  QAction* zoomOutAct_{nullptr};
+  QAction* zoomResetAct_{nullptr};
   QAction* toggleHiddenAct_{nullptr};
 
   QActionGroup* sortKeyGroup_{nullptr};
@@ -186,6 +189,8 @@ private:
 
   QDockWidget* searchDock_{nullptr};
   SearchResultsTab* searchTab_{nullptr};
+
+  int zoomLevel_{0};
   QAction* emptyTrashAct_{nullptr};
   
   // Help

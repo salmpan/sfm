@@ -7,6 +7,7 @@
 #include <QWidget>
 #include <QString>
 #include <QTimer>
+#include <QFont>
 #include <vector>
 
 class QFileSystemModel;
@@ -88,6 +89,13 @@ public:
 
   TrashView* trashView() const { return trashView_; }
 
+  // Zoom affects icon sizes + font size in all views.
+  void setZoomLevel(int level);
+  int zoomLevel() const { return zoomLevel_; }
+  void zoomIn() { setZoomLevel(zoomLevel_ + 1); }
+  void zoomOut() { setZoomLevel(zoomLevel_ - 1); }
+  void resetZoom() { setZoomLevel(0); }
+
 signals:
   void locationChanged(const QString &loc);
   void titleChanged(const QString &title);
@@ -100,6 +108,8 @@ signals:
   void requestNavigate(const QString &path);
 
   void openFolderInNewTabRequested(const QString &folderPath);
+
+  void zoomChanged(int level);
 
   void propertiesRequested(const QString &path);
 
@@ -125,6 +135,7 @@ protected:
   bool eventFilter(QObject *obj, QEvent *event) override;
 
 private:
+  void applyZoom_();
   QAbstractItemView* currentFileView() const;
   void schedulePrefetchVisibleFolderSizes_();
   void prefetchVisibleFolderSizes_();
@@ -151,6 +162,11 @@ private:
   QListView *compactView_{nullptr};
 
   QTimer *prefetchTimer_{nullptr};
+
+  int zoomLevel_{0};
+  QFont baseFontList_;
+  QFont baseFontIcon_;
+  QFont baseFontCompact_;
 
   ViewMode fileViewMode_{ViewMode::List};
   SortState fileSort_{};

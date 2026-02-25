@@ -3,6 +3,7 @@
 #include <QModelIndex>
 #include <QWidget>
 #include <QStringList>
+#include <QFont>
 
 class QAbstractItemView;
 class QTreeView;
@@ -21,6 +22,13 @@ public:
   };
 
   explicit TrashView(QWidget *parent = nullptr);
+
+  // Zoom affects icon sizes + font size in all trash views.
+  void setZoomLevel(int level);
+  int zoomLevel() const { return zoomLevel_; }
+  void zoomIn() { setZoomLevel(zoomLevel_ + 1); }
+  void zoomOut() { setZoomLevel(zoomLevel_ - 1); }
+  void resetZoom() { setZoomLevel(0); }
 
   void refresh();
 
@@ -63,6 +71,13 @@ private:
   QModelIndexList selectedRows() const;
 
 private:
+  void applyZoom_();
+
+  int zoomLevel_{0};
+  QFont baseFontList_;
+  QFont baseFontIcon_;
+  QFont baseFontCompact_;
+
   TrashModel *model_{nullptr};
   QSortFilterProxyModel *proxy_{nullptr};
 

@@ -17,6 +17,9 @@
 #include <QUrl>
 #include <QItemSelectionModel>
 
+#include <cmath>
+#include <algorithm>
+
 #include "trashmodel.h"
 
 namespace {
@@ -133,6 +136,9 @@ TrashView::TrashView(QWidget *parent)
   iconView_->setResizeMode(QListView::Adjust);
   iconView_->setSelectionMode(QAbstractItemView::ExtendedSelection);
   iconView_->setContextMenuPolicy(Qt::CustomContextMenu);
+  iconView_->setUniformItemSizes(true);
+  iconView_->setWordWrap(true);
+  iconView_->setMovement(QListView::Static);
 
   // Compact list
   compactView_ = new QListView(stack_);
@@ -140,6 +146,9 @@ TrashView::TrashView(QWidget *parent)
   compactView_->setViewMode(QListView::ListMode);
   compactView_->setSelectionMode(QAbstractItemView::ExtendedSelection);
   compactView_->setContextMenuPolicy(Qt::CustomContextMenu);
+  compactView_->setUniformItemSizes(true);
+  compactView_->setWrapping(false);
+  compactView_->setSpacing(0);
 
   stack_->addWidget(listView_);
   stack_->addWidget(iconView_);
@@ -176,6 +185,54 @@ TrashView::TrashView(QWidget *parent)
 
   setViewMode(ViewMode::List);
   setSort(TrashModel::Name, Qt::AscendingOrder);
+
+  baseFontList_ = listView_->font();
+  baseFontIcon_ = iconView_->font();
+  baseFontCompact_ = compactView_->font();
+
+  setZoomLevel(0);
+}
+
+void TrashView::setZoomLevel(int level) {
+  // Keep within a sane range.
+  if (level < -6) level = -6;
+  if (level > 10) level = 10;
+  if (zoomLevel_ == level) return;
+  zoomLevel_ = level;
+  applyZoom_();
+}
+
+void TrashView::applyZoom_() {
+  // Scale: 15% per step.
+  const double scale = std::pow(1.15, (double)zoomLevel_);
+
+  auto scaledFont = [&](const QFont &base) {
+    QFont f = base;
+    const double ps = base.pointSizeF() > 0 ? base.pointSizeF() : (double)base.pointSize();
+    if (ps > 0) f.setPointSizeF(std::max(6.0, ps * scale));
+    return f;
+  };
+
+  listView_->setFont(scaledFont(baseFontList_));
+  iconView_->setFont(scaledFont(baseFontIcon_));
+  compactView_->setFont(scaledFont(baseFontCompact_));
+
+  // Icon sizes
+  auto clamp = [](int v, int lo, int hi){ return std::max(lo, std::min(hi, v)); };
+
+  const int iconGrid = clamp((int)std::lround(64 * scale), 16, 256);
+  iconView_->setIconSize(QSize(iconGrid, iconGrid));
+  iconView_->setGridSize(QSize(clamp((int)std::lround(110 * scale), 60, 420),
+                              clamp((int)std::lround(100 * scale), 50, 360)));
+
+  const int iconSmall = clamp((int)std::lround(16 * scale), 12, 96);
+  compactView_->setIconSize(QSize(iconSmall, iconSmall));
+  listView_->setIconSize(QSize(iconSmall, iconSmall));
+
+  // Ensure layout recalculates.
+  listView_->doItemsLayout();
+  iconView_->doItemsLayout();
+  compactView_->doItemsLayout();
 }
 
 int TrashView::itemCount() const {

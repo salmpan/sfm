@@ -525,6 +525,44 @@ void MainWindow::createActions()
   if (tabs_) connect(tabs_, &QTabWidget::currentChanged, this, syncViewChecks);
   syncViewChecks();
 
+  zoomInAct_ = new QAction(tr("Zoom In"), this);
+  zoomInAct_->setShortcuts(QList<QKeySequence>{
+      QKeySequence(QKeySequence::ZoomIn),
+      QKeySequence(QStringLiteral("Ctrl+=")),
+      QKeySequence(QStringLiteral("Ctrl++"))
+  });
+  connect(zoomInAct_, &QAction::triggered, this, [this]{
+    const int base = currentTab() ? currentTab()->zoomLevel() : zoomLevel_;
+    const int next = base + 1;
+    zoomLevel_ = next;
+    for (int i = 0; tabs_ && i < tabs_->count(); ++i) {
+      if (auto *t = qobject_cast<BrowserTab*>(tabs_->widget(i))) t->setZoomLevel(next);
+    }
+    QSettings().setValue("view/zoomLevel", zoomLevel_);
+  });
+
+  zoomOutAct_ = new QAction(tr("Zoom Out"), this);
+  zoomOutAct_->setShortcut(QKeySequence::ZoomOut);
+  connect(zoomOutAct_, &QAction::triggered, this, [this]{
+    const int base = currentTab() ? currentTab()->zoomLevel() : zoomLevel_;
+    const int next = base - 1;
+    zoomLevel_ = next;
+    for (int i = 0; tabs_ && i < tabs_->count(); ++i) {
+      if (auto *t = qobject_cast<BrowserTab*>(tabs_->widget(i))) t->setZoomLevel(next);
+    }
+    QSettings().setValue("view/zoomLevel", zoomLevel_);
+  });
+
+  zoomResetAct_ = new QAction(tr("Reset Zoom"), this);
+  zoomResetAct_->setShortcut(QKeySequence("Ctrl+0"));
+  connect(zoomResetAct_, &QAction::triggered, this, [this]{
+    zoomLevel_ = 0;
+    for (int i = 0; tabs_ && i < tabs_->count(); ++i) {
+      if (auto *t = qobject_cast<BrowserTab*>(tabs_->widget(i))) t->setZoomLevel(0);
+    }
+    QSettings().setValue("view/zoomLevel", zoomLevel_);
+  });
+
   toggleHiddenAct_ = new QAction(tr("Show Hidden Files"), this);
   toggleHiddenAct_->setCheckable(true);
   toggleHiddenAct_->setShortcut(QKeySequence("Ctrl+H"));
@@ -714,6 +752,11 @@ void MainWindow::createMenus()
   viewMenu_->addAction(viewCompactAct_);
 
   viewMenu_->addSeparator();
+  viewMenu_->addAction(zoomInAct_);
+  viewMenu_->addAction(zoomOutAct_);
+  viewMenu_->addAction(zoomResetAct_);
+
+  viewMenu_->addSeparator();
 
   QMenu *sortByMenu = viewMenu_->addMenu(tr("Sort By"));
   sortByMenu->addAction(sortByNameAct_);
@@ -788,6 +831,9 @@ void MainWindow::loadSettings()
   // Recent locations
   recentLocations_ = s.value("session/recentLocations").toStringList();
   rebuildRecentLocationsMenu();
+
+  // Zoom
+  zoomLevel_ = s.value("view/zoomLevel", 0).toInt();
 }
 
 void MainWindow::saveSettings() const
@@ -965,6 +1011,7 @@ void MainWindow::openNewWindow()
 
 void MainWindow::newTab(const QString &startLoc) {
   auto *tab = new BrowserTab(fsModel_, this);
+  tab->setZoomLevel(zoomLevel_);
   const int idx = tabs_->addTab(tab, "Tab");
   tabs_->setCurrentIndex(idx);
 
@@ -985,6 +1032,17 @@ void MainWindow::newTab(const QString &startLoc) {
   connect(tab, &BrowserTab::titleChanged, this, [this, tab](const QString &title){
     const int i = tabs_->indexOf(tab);
     if (i >= 0) tabs_->setTabText(i, title);
+  });
+
+  connect(tab, &BrowserTab::zoomChanged, this, [this, tab](int level){
+    if (tab != currentTab()) return;
+    zoomLevel_ = level;
+    for (int i = 0; tabs_ && i < tabs_->count(); ++i) {
+      auto *other = qobject_cast<BrowserTab*>(tabs_->widget(i));
+      if (!other || other == tab) continue;
+      other->setZoomLevel(level);
+    }
+    QSettings().setValue("view/zoomLevel", zoomLevel_);
   });
 
   // Inline status bar updates (safe + slightly redundant)

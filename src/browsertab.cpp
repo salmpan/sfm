@@ -18,11 +18,15 @@
 #include <QMenu>
 #include <QMouseEvent>
 #include <QKeyEvent>
+#include <QWheelEvent>
 #include <QGuiApplication>
 #include <QClipboard>
 #include <QScrollBar>
 
+#include <cmath>
+
 #include <utility>
+#include <algorithm>
 
 BrowserTab::BrowserTab(QFileSystemModel *sharedModel, QWidget *parent)
   : QWidget(parent), fsModel_(sharedModel) {
@@ -161,6 +165,11 @@ BrowserTab::BrowserTab(QFileSystemModel *sharedModel, QWidget *parent)
   layout->setContentsMargins(0, 0, 0, 0);
   layout->addWidget(stack_);
 
+  // Capture base fonts for zoom scaling.
+  baseFontList_ = listView_->font();
+  baseFontIcon_ = iconView_->font();
+  baseFontCompact_ = compactView_->font();
+
   // Default per-pane state
   fileViewMode_ = ViewMode::List;
   trashViewMode_ = ViewMode::List;
@@ -177,7 +186,50 @@ BrowserTab::BrowserTab(QFileSystemModel *sharedModel, QWidget *parent)
   setSort(fileSort_.key, fileSort_.order);
   setFoldersFirst(true);
 
+  setZoomLevel(0);
+
   navigateTo(QDir::homePath(), true);
+}
+
+void BrowserTab::setZoomLevel(int level) {
+  if (level < -6) level = -6;
+  if (level > 10) level = 10;
+  if (zoomLevel_ == level) return;
+  zoomLevel_ = level;
+  applyZoom_();
+  emit zoomChanged(zoomLevel_);
+}
+
+void BrowserTab::applyZoom_() {
+  const double scale = std::pow(1.15, (double)zoomLevel_);
+
+  auto scaledFont = [&](const QFont &base) {
+    QFont f = base;
+    const double ps = base.pointSizeF() > 0 ? base.pointSizeF() : (double)base.pointSize();
+    if (ps > 0) f.setPointSizeF(std::max(6.0, ps * scale));
+    return f;
+  };
+
+  listView_->setFont(scaledFont(baseFontList_));
+  iconView_->setFont(scaledFont(baseFontIcon_));
+  compactView_->setFont(scaledFont(baseFontCompact_));
+
+  auto clamp = [](int v, int lo, int hi){ return std::max(lo, std::min(hi, v)); };
+  const int iconGrid = clamp((int)std::lround(64 * scale), 16, 256);
+  iconView_->setIconSize(QSize(iconGrid, iconGrid));
+  iconView_->setGridSize(QSize(clamp((int)std::lround(110 * scale), 60, 420),
+                              clamp((int)std::lround(100 * scale), 50, 360)));
+
+  const int iconSmall = clamp((int)std::lround(16 * scale), 12, 96);
+  compactView_->setIconSize(QSize(iconSmall, iconSmall));
+  listView_->setIconSize(QSize(iconSmall, iconSmall));
+
+  // Trash pane also follows the same zoom.
+  if (trashView_) trashView_->setZoomLevel(zoomLevel_);
+
+  listView_->doItemsLayout();
+  iconView_->doItemsLayout();
+  compactView_->doItemsLayout();
 }
 
 void BrowserTab::hookPrefetchSignals_(QAbstractItemView *v) {
@@ -797,6 +849,16 @@ bool BrowserTab::eventFilter(QObject *obj, QEvent *event) {
       if ((ke->modifiers() & Qt::ControlModifier) &&
           (ke->key() == Qt::Key_Return || ke->key() == Qt::Key_Enter)) {
         onCtrlEnter();
+        return true;
+      }
+    }
+
+    if (event->type() == QEvent::Wheel) {
+      auto *we = static_cast<QWheelEvent*>(event);
+      if (we->modifiers() & Qt::ControlModifier) {
+        const int dy = we->angleDelta().y();
+        if (dy > 0) zoomIn();
+        else if (dy < 0) zoomOut();
         return true;
       }
     }
