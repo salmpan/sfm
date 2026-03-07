@@ -93,6 +93,7 @@ private:
 
   void refresh();
   void openCurrentDirInTerminal();
+  void openCurrentDirAsRoot();
   void emptyTrashFromSidebar();
   void openNewWindow();
   void showAboutDialog();
@@ -184,6 +185,7 @@ private:
 
   // Tools
   QAction* openTerminalAct_{nullptr};
+  QAction* openAsRootAct_{nullptr};
   QAction* findAct_{nullptr};
   QAction* toggleSearchDockAct_{nullptr};
 
