@@ -47,7 +47,9 @@ SearchResultsTab::SearchResultsTab(const SearchOptions &opt, QWidget *parent)
   useCurrentFolderBtn_ = new QPushButton(tr("Search in current folder"), this);
   useCurrentFolderBtn_->setEnabled(false);
   connect(useCurrentFolderBtn_, &QPushButton::clicked, this, [this]{
-    if (!currentFolderPath_.isEmpty()) setRootPath(currentFolderPath_);
+    if (currentFolderPath_.isEmpty()) return;
+    setRootPath(currentFolderPath_);
+    scheduleRun_();
   });
 
   currentFolderLabel_ = new QLabel(this);
@@ -172,6 +174,11 @@ SearchResultsTab::SearchResultsTab(const SearchOptions &opt, QWidget *parent)
   layout->addWidget(view_, 1);
   setLayout(layout);
 
+  connect(&nameWatcher_, &QFutureWatcher<void>::finished, this, [this]{
+    if (cancelFlag_.loadAcquire()) finish_(tr("Search canceled"));
+    else finish_(tr("Search complete — %1 result(s)").arg(model_->rowCount()));
+  });
+
   setRootPath(opt_.rootPath);
   updateSummary_();
   // Don't auto-run on construction if query empty; otherwise start immediately.
@@ -289,6 +296,16 @@ void SearchResultsTab::start_() {
   model_->clear();
   rgBuf_.clear();
 
+  if (opt_.useRegex) {
+    QRegularExpression::PatternOptions rxOpts = QRegularExpression::NoPatternOption;
+    if (!opt_.caseSensitive) rxOpts |= QRegularExpression::CaseInsensitiveOption;
+    const QRegularExpression rx(opt_.query, rxOpts);
+    if (!rx.isValid()) {
+      finish_(tr("Invalid regular expression: %1").arg(rx.errorString()));
+      return;
+    }
+  }
+
   if (opt_.mode == SearchOptions::Mode::Content) startContentSearch_();
   else startNameSearch_();
 }
@@ -342,41 +359,41 @@ void SearchResultsTab::startNameSearch_() {
   cancelBtn_->setEnabled(true);
   const QString root = opt_.rootPath;
   const QString query = opt_.query;
+  const bool caseSensitive = opt_.caseSensitive;
+  const bool useRegex = opt_.useRegex;
+  const bool includeHidden = opt_.includeHidden;
+  const bool includeDirectories = opt_.includeDirectories;
+  const bool followSymlinks = opt_.followSymlinks;
 
-  const Qt::CaseSensitivity cs = opt_.caseSensitive ? Qt::CaseSensitive : Qt::CaseInsensitive;
+  const Qt::CaseSensitivity cs = caseSensitive ? Qt::CaseSensitive : Qt::CaseInsensitive;
   QRegularExpression rx;
-  if (opt_.useRegex) {
+  if (useRegex) {
     QRegularExpression::PatternOptions opts = QRegularExpression::NoPatternOption;
-    if (!opt_.caseSensitive) opts |= QRegularExpression::CaseInsensitiveOption;
+    if (!caseSensitive) opts |= QRegularExpression::CaseInsensitiveOption;
     rx = QRegularExpression(query, opts);
   }
 
-  auto future = QtConcurrent::run([this, root, query, cs, rx]{
+  auto future = QtConcurrent::run([this, root, query, cs, rx, useRegex, includeHidden, includeDirectories, followSymlinks]{
     QDirIterator::IteratorFlags itFlags;
-    if (opt_.followSymlinks) itFlags |= QDirIterator::FollowSymlinks;
 
-    QDir::Filters filters = QDir::AllEntries | QDir::NoDotAndDotDot;
-    if (!opt_.includeHidden) filters |= QDir::NoDotAndDotDot; // hidden filtered by default
-    if (!opt_.includeHidden) filters |= QDir::NoSymLinks; // not really hidden, but reduces noise
-    // NOTE: QDirIterator doesn't have a direct "include hidden" switch; hidden will still be yielded.
-    // We'll skip them manually if includeHidden is false.
+    if (followSymlinks) itFlags |= QDirIterator::FollowSymlinks;
 
     QDirIterator it(root, QDir::AllEntries | QDir::NoDotAndDotDot, itFlags | QDirIterator::Subdirectories);
     while (it.hasNext()) {
       if (cancelFlag_.loadAcquire()) return;
       const QString p = it.next();
-      QFileInfo fi = it.fileInfo();
+      const QFileInfo fi = it.fileInfo();
 
-      if (!opt_.includeHidden) {
+      if (!includeHidden) {
         if (fi.fileName().startsWith('.')) continue;
         // also skip hidden components (cheap):
         if (p.contains("/.") || p.contains("\\.")) continue;
       }
 
-      if (fi.isDir() && !opt_.includeDirectories) continue;
+      if (fi.isDir() && !includeDirectories) continue;
 
       bool match = false;
-      if (opt_.useRegex) match = rx.isValid() && rx.match(fi.fileName()).hasMatch();
+      if (useRegex) match = rx.isValid() && rx.match(fi.fileName()).hasMatch();
       else match = fi.fileName().contains(query, cs);
 
       if (match) {
@@ -387,10 +404,6 @@ void SearchResultsTab::startNameSearch_() {
     }
   });
 
-  connect(&nameWatcher_, &QFutureWatcher<void>::finished, this, [this]{
-    if (cancelFlag_.loadAcquire()) finish_(tr("Search canceled"));
-    else finish_(tr("Search complete — %1 result(s)").arg(model_->rowCount()));
-  });
   nameWatcher_.setFuture(future);
 }
 
@@ -458,7 +471,10 @@ void SearchResultsTab::onRgReadyRead_() {
     if (type != "match") continue;
 
     const QJsonObject data = obj.value("data").toObject();
-    const QString path = data.value("path").toObject().value("text").toString();
+    QString path = data.value("path").toObject().value("text").toString();
+      if (QDir::isRelativePath(path)) {
+        path = QDir(opt_.rootPath).filePath(path);
+      }
     const int lineNo = data.value("line_number").toInt();
     const QJsonObject sub = data.value("submatches").toArray().isEmpty() ? QJsonObject()
       : data.value("submatches").toArray().first().toObject();
@@ -475,6 +491,8 @@ void SearchResultsTab::onRgReadyRead_() {
 }
 
 void SearchResultsTab::onRgFinished_(int exitCode, QProcess::ExitStatus status) {
+  onRgReadyRead_();
+
   if (status == QProcess::CrashExit) {
     if (cancelFlag_.loadAcquire()) finish_(tr("Search canceled"));
     else finish_(tr("ripgrep crashed"));

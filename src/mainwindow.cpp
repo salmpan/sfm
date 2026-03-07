@@ -35,6 +35,9 @@
 #include <QCloseEvent>
 #include <QDesktopServices>
 #include <QUrl>
+#include <QStandardPaths>
+
+#include <unistd.h>
 
 #include "iconutil.h"
 #include "terminal.h"
@@ -51,10 +54,7 @@
 
 
 MainWindow::MainWindow(QWidget *parent)
-  : MainWindow(QString(), parent)
-{
-
-}
+  : MainWindow(QString(), parent) { }
 
 
 MainWindow::MainWindow(const QString &startLoc, QWidget *parent)
@@ -149,26 +149,26 @@ MainWindow::MainWindow(const QString &startLoc, QWidget *parent)
   auto *tb = addToolBar("Navigation");
   tb->setMovable(false);
 
-  actBack_ = tb->addAction("Back");
+  actBack_ = tb->addAction(tr("Back"));
   actBack_->setIcon(IconUtil::fromTheme(QStringList{"go-previous", "back"}, {},
     QStyle::SP_ArrowBack, this));
   actBack_->setShortcut(QKeySequence::Back);
   connect(actBack_, &QAction::triggered, this, [this]{ currentTab()->goBack(); syncUiFromTab(); });
 
-  actForward_ = tb->addAction("Forward");
-  actForward_->setIcon(IconUtil::fromTheme(QStringList{"go-next","forward"}, {},
+  actForward_ = tb->addAction(tr("Forward"));
+  actForward_->setIcon(IconUtil::fromTheme(QStringList{"go-next", "forward"}, {},
     QStyle::SP_ArrowForward, this));
   actForward_->setShortcut(QKeySequence::Forward);
   connect(actForward_, &QAction::triggered, this, [this]{ currentTab()->goForward(); syncUiFromTab(); });
 
-  actUp_ = tb->addAction("Up");
-  actUp_->setIcon(IconUtil::fromTheme(QStringList{"go-up","up"}, {},
+  actUp_ = tb->addAction(tr("Up"));
+  actUp_->setIcon(IconUtil::fromTheme(QStringList{"go-up", "up"}, {},
     QStyle::SP_ArrowUp, this));
   actUp_->setShortcut(QKeySequence(Qt::ALT | Qt::Key_Up));
   connect(actUp_, &QAction::triggered, this, [this]{ currentTab()->goUp(); syncUiFromTab(); });
 
-  actRefresh_ = tb->addAction("Refresh");
-  actRefresh_->setIcon(IconUtil::fromTheme(QStringList{"view-refresh","reload"}, {},
+  actRefresh_ = tb->addAction(tr("Refresh"));
+  actRefresh_->setIcon(IconUtil::fromTheme(QStringList{"view-refresh", "reload"}, {},
     QStyle::SP_BrowserReload, this));
   actRefresh_->setShortcut(QKeySequence::Refresh);
   connect(actRefresh_, &QAction::triggered, this, &MainWindow::refresh);
@@ -186,9 +186,21 @@ MainWindow::MainWindow(const QString &startLoc, QWidget *parent)
 
   pathStack_->addWidget(breadcrumbs_);
   pathStack_->addWidget(address_);
-  pathStack_->setCurrentWidget(breadcrumbs_);
+  setPathEditMode(false);
 
   tb->addWidget(pathStack_);
+
+  tb->addSeparator();
+ 
+  togglePathModeAct_ = tb->addAction(tr("Edit Location"));
+  togglePathModeAct_->setCheckable(true);
+  togglePathModeAct_->setIcon(IconUtil::fromTheme(
+    QStringList{"document-edit", "edit-rename"},
+    QStringList{"edit"},
+    QStyle::SP_FileDialogDetailedView, this));
+    connect(togglePathModeAct_, &QAction::triggered, this, [this](bool checked){
+      setPathEditMode(checked);
+  });
 
   connect(address_, &QLineEdit::returnPressed, this, &MainWindow::onAddressEntered);
   connect(breadcrumbs_, &BreadcrumbBar::pathActivated, this, [this](const QString &p){
@@ -199,9 +211,7 @@ MainWindow::MainWindow(const QString &startLoc, QWidget *parent)
     newTab(p);
   });
   connect(breadcrumbs_, &BreadcrumbBar::requestEdit, this, [this]{
-    pathStack_->setCurrentWidget(address_);
-    address_->setFocus(Qt::ShortcutFocusReason);
-    address_->selectAll();
+    setPathEditMode(true);
   });
 
   // Ctrl+L focuses the address bar; Esc returns to breadcrumbs.
@@ -213,7 +223,7 @@ MainWindow::MainWindow(const QString &startLoc, QWidget *parent)
   });
   auto *scCrumbs = new QShortcut(QKeySequence(Qt::Key_Escape), address_);
   connect(scCrumbs, &QShortcut::activated, this, [this]{
-    pathStack_->setCurrentWidget(breadcrumbs_);
+    setPathEditMode(false);
   });
 
   // Central
@@ -345,6 +355,47 @@ MainWindow::MainWindow(const QString &startLoc, QWidget *parent)
      : QSettings().value("session/lastLocation", QDir::homePath()).toString();
   newTab(lastLoc.isEmpty() ? QDir::homePath() : lastLoc);
 }
+
+namespace {
+
+bool startSfmAsRoot(const QString &dir, QString *errorOut) {
+  const QString exe = QCoreApplication::applicationFilePath();
+  if (exe.isEmpty()) {
+    if (errorOut) *errorOut = QObject::tr("Cannot determine the sfm executable path.");
+    return false;
+  }
+
+  QStringList args;
+#if defined(Q_OS_LINUX)
+  if (::geteuid() != 0) {
+    const QString pkexec = QStandardPaths::findExecutable(QStringLiteral("pkexec"));
+    if (pkexec.isEmpty()) {
+      if (errorOut) *errorOut = QObject::tr("pkexec was not found on this system.");
+      return false;
+    }
+
+    args << QStringLiteral("env");
+    const auto passEnv = [&](const char *name) {
+      const QString value = qEnvironmentVariable(name);
+      if (!value.isEmpty()) args << (QString::fromLatin1(name) + QStringLiteral("=") + value);
+    };
+
+    passEnv("DISPLAY");
+    passEnv("XAUTHORITY");
+    passEnv("WAYLAND_DISPLAY");
+    passEnv("XDG_RUNTIME_DIR");
+    passEnv("DBUS_SESSION_BUS_ADDRESS");
+
+    args << exe << dir;
+    return QProcess::startDetached(pkexec, args);
+  }
+#endif
+
+  args << dir;
+  return QProcess::startDetached(exe, args);
+}
+
+} // namespace
 
 void MainWindow::createActions()
 {
@@ -645,10 +696,6 @@ void MainWindow::createActions()
 
   foldersFirstAct_ = new QAction(tr("Folders First"), this);
   foldersFirstAct_->setCheckable(true);
-  foldersFirstAct_->setIcon(IconUtil::fromTheme(
-    QStringList{"folder", "folder-symbolic"},
-    QStringList{"inode-directory"},
-    QStyle::SP_DirIcon, this));
   connect(foldersFirstAct_, &QAction::toggled, this, [this](bool on){
     if (auto *t = currentTab()) t->setFoldersFirst(on);
     syncUiFromTab();
@@ -687,6 +734,14 @@ void MainWindow::createActions()
     QStringList{"system-run"},
     QStyle::SP_ComputerIcon, this));
   connect(openTerminalAct_, &QAction::triggered, this, &MainWindow::openCurrentDirInTerminal);
+
+  openAsRootAct_ = new QAction(tr("Open Current Folder as Root"), this);
+  openAsRootAct_->setIcon(IconUtil::fromTheme(
+    QStringList{"dialog-password", "object-locked", "system-lock-screen"},
+    QStringList{"emblem-readonly"},
+    QStyle::SP_MessageBoxWarning, this));
+
+  connect(openAsRootAct_, &QAction::triggered, this, &MainWindow::openCurrentDirAsRoot);
 
   findAct_ = new QAction(tr("Find…"), this);
   findAct_->setShortcut(QKeySequence("Ctrl+Shift+F"));
@@ -784,6 +839,8 @@ void MainWindow::createMenus()
 
   // Tools
   toolsMenu_->addAction(openTerminalAct_);
+  toolsMenu_->addAction(openAsRootAct_);
+  toolsMenu_->addSeparator();
   toolsMenu_->addAction(findAct_);
   // Search dock (hidden by default)
   searchDock_ = new QDockWidget(tr("Search"), this);
@@ -791,11 +848,6 @@ void MainWindow::createMenus()
   searchDock_->setAllowedAreas(Qt::BottomDockWidgetArea | Qt::TopDockWidgetArea);
   addDockWidget(Qt::BottomDockWidgetArea, searchDock_);
   searchDock_->hide();
-
-  toggleSearchDockAct_ = searchDock_->toggleViewAction();
-  toggleSearchDockAct_->setText(tr("Search"));
-  viewMenu_->addSeparator();
-  viewMenu_->addAction(toggleSearchDockAct_);
 
   toolsMenu_->addSeparator();
   toolsMenu_->addAction(emptyTrashAct_);
@@ -1072,7 +1124,7 @@ void MainWindow::newTab(const QString &startLoc) {
   connect(tab, &BrowserTab::openWithAppRequested, this, [this](const QString &desktopId, const QString &filePath){
     QString err;
     if (!OpenWithDialog::launchWithDesktopId(desktopId, filePath, &err)) {
-      QMessageBox::warning(this, "Open With", err);
+      QMessageBox::warning(this, tr("Open With"), err);
     }
   });
   connect(tab, &BrowserTab::createNewFolderRequested, this, [this]{
@@ -1360,6 +1412,24 @@ void MainWindow::openCurrentDirInTerminal() {
   if (!Terminal::openInTerminal(dir, &err)) QMessageBox::warning(this, "Terminal", err);
 }
 
+void MainWindow::openCurrentDirAsRoot() {
+  auto *t = currentTab();
+  if (!t) return;
+
+  const QString dir = t->inTrash() ? QString() : t->location();
+  if (dir.isEmpty() || dir.startsWith("trash://")) {
+    QMessageBox::information(this, tr("Open as Root"),
+                             tr("This works only for regular filesystem folders."));
+    return;
+  }
+
+  QString err;
+  if (!startSfmAsRoot(dir, &err)) {
+    if (err.isEmpty()) err = tr("Failed to launch a privileged sfm window.");
+    QMessageBox::warning(this, tr("Open as Root"), err);
+  }
+}
+
 void MainWindow::emptyTrashFromSidebar() {
   currentTab()->navigateTo("trash:///", true);
   syncUiFromTab();
@@ -1407,7 +1477,6 @@ void MainWindow::openFindDialog()
     return;
   }
 
-  // Create the dock content on first use. Options are persisted inside SearchResultsTab.
   if (!searchTab_) {
     SearchOptions opt;
     opt.rootPath = root;
@@ -1417,6 +1486,7 @@ void MainWindow::openFindDialog()
   if (searchDock_) {
     searchDock_->show();
     searchDock_->raise();
+    resizeDocks({searchDock_}, {260}, Qt::Vertical);
   }
 
   if (searchTab_) {
@@ -1433,6 +1503,7 @@ void MainWindow::startSearch(const SearchOptions &opt)
   if (searchTab_) return;
 
   searchTab_ = new SearchResultsTab(opt, searchDock_);
+  searchTab_->setMinimumHeight(220);
   searchDock_->setWidget(searchTab_);
 
   connect(searchTab_, &SearchResultsTab::openPathRequested, this, [this](const QString &path){

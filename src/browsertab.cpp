@@ -682,10 +682,10 @@ void BrowserTab::onContextMenu(const QPoint &pos) {
 
   QMenu menu(this);
 
-  QAction *aOpen = menu.addAction("Open");
+  QAction *aOpen = menu.addAction(tr("Open"));
   aOpen->setEnabled(hasIndex);
 
-  QAction *aOpenNewTab = menu.addAction("Open in New Tab");
+  QAction *aOpenNewTab = menu.addAction(tr("Open in New Tab"));
   aOpenNewTab->setEnabled(hasIndex && QFileInfo(clickedPath).isDir());
   aOpenNewTab->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Return));
 
@@ -693,7 +693,7 @@ void BrowserTab::onContextMenu(const QPoint &pos) {
   QMenu *openWithMenu = nullptr;
   QAction *aOpenWithDialog = nullptr;
   if (hasIndex && QFileInfo(clickedPath).isFile()) {
-    openWithMenu = menu.addMenu("Open With");
+    openWithMenu = menu.addMenu(tr("Open With"));
     const QString mime = OpenWithDialog::detectMime(clickedPath);
     const QString def = OpenWithDialog::queryDefaultDesktopId(mime);
     const auto apps = OpenWithDialog::queryAppsForMime(mime, 6);
@@ -705,7 +705,7 @@ void BrowserTab::onContextMenu(const QPoint &pos) {
       a->setData(app.desktopId);
     }
     if (!apps.isEmpty()) openWithMenu->addSeparator();
-    aOpenWithDialog = openWithMenu->addAction("Other Application…");
+    aOpenWithDialog = openWithMenu->addAction(tr("Other Application…"));
   }
 
 
